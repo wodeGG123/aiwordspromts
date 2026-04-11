@@ -1,0 +1,23 @@
+{
+  "name": "ai-forward-proxy",
+  "version": "1.0.0",
+  "description": "AI 大模型转发服务器，支持提示词屏蔽",
+  "type": "module",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js"
+  },
+  "keywords": [
+    "ai",
+    "proxy",
+    "openai",
+    "api"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "dotenv": "^17.4.1",
+    "openai": "^6.34.0"
+  }
+}
