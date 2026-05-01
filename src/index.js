@@ -1,9 +1,11 @@
 import 'dotenv/config';
 import OpenAI from 'openai';
 import http from 'http';
+import { fileURLToPath } from 'url';
+import { dirname } from 'path';
 
-// 引入系统提示词
-import systemPrompt from './adventure_story_prompt.js';
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 
 const PORT = process.env.PORT || 3000;
 const AI_BASE_URL = process.env.AI_BASE_URL || 'https://ark.cn-beijing.volces.com/api/v3';
@@ -20,6 +22,28 @@ const openai = new OpenAI({
 
 // 内容已屏蔽标记
 const FILTERED_MARKER = '[内容已屏蔽]';
+
+/**
+ * 根据 type 获取对应的提示词模块
+ * @param {string} type - 提示词类型
+ * @returns {Promise<string>} - 返回提示词内容
+ */
+async function getSystemPrompt(type) {
+  if (!type || type === 'adventure_story') {
+    const { default: prompt } = await import('./adventure_story_prompt.js');
+    return prompt;
+  }
+
+  const promptPath = `./${type}.js`;
+  try {
+    const { default: prompt } = await import(promptPath);
+    return prompt;
+  } catch (error) {
+    console.warn(`未找到提示词文件: ${promptPath}，使用默认提示词`);
+    const { default: defaultPrompt } = await import('./adventure_story_prompt.js');
+    return defaultPrompt;
+  }
+}
 
 /**
  * 检查文本是否包含黑名单词汇
@@ -86,6 +110,9 @@ async function handleChat(req, res) {
       // 获取模型名称（如果未指定，使用配置的默认模型）
       const model = requestData.model || AI_MODEL;
       
+      // 获取提示词类型，默认为 adventure_story
+      const promptType = requestData.type || 'adventure_story';
+      
       // 过滤提示词
       let filteredData = requestData;
       if (ENABLE_PROMPT_FILTER && requestData.messages) {
@@ -103,6 +130,9 @@ async function handleChat(req, res) {
           console.log(`[${new Date().toISOString()}] 提示词已屏蔽`);
         }
       }
+
+      // 根据 type 获取对应的系统提示词
+      const systemPrompt = await getSystemPrompt(promptType);
 
       // 将系统提示词添加到 messages 最前面
       const messagesWithSystem = [
