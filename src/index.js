@@ -1,18 +1,22 @@
-import 'dotenv/config';
-import OpenAI from 'openai';
-import http from 'http';
-import { fileURLToPath } from 'url';
-import { dirname } from 'path';
+import "dotenv/config";
+import OpenAI from "openai";
+import http from "http";
+import { fileURLToPath } from "url";
+import { dirname } from "path";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 const PORT = process.env.PORT || 3000;
-const AI_BASE_URL = process.env.AI_BASE_URL || 'https://ark.cn-beijing.volces.com/api/v3';
-const AI_API_KEY = process.env.AI_API_KEY || 'a5cccc9b-116e-40e1-9009-0c0f8fe56eb8';
-const AI_MODEL = process.env.AI_MODEL || 'deepseek-v3-2-251201';
-const ENABLE_PROMPT_FILTER = process.env.ENABLE_PROMPT_FILTER === 'true';
-const PROMPT_BLACKLIST = (process.env.PROMPT_BLACKLIST || '').split(',').filter(Boolean);
+const AI_BASE_URL =
+  process.env.AI_BASE_URL || "https://ark.cn-beijing.volces.com/api/v3";
+const AI_API_KEY =
+  process.env.AI_API_KEY || "a5cccc9b-116e-40e1-9009-0c0f8fe56eb8";
+const AI_MODEL = process.env.AI_MODEL || "doubao-seed-character-260628";
+const ENABLE_PROMPT_FILTER = process.env.ENABLE_PROMPT_FILTER === "true";
+const PROMPT_BLACKLIST = (process.env.PROMPT_BLACKLIST || "")
+  .split(",")
+  .filter(Boolean);
 
 // 初始化 OpenAI 客户端
 const openai = new OpenAI({
@@ -21,7 +25,7 @@ const openai = new OpenAI({
 });
 
 // 内容已屏蔽标记
-const FILTERED_MARKER = '[内容已屏蔽]';
+const FILTERED_MARKER = "[内容已屏蔽]";
 
 /**
  * 根据 type 获取对应的提示词模块
@@ -29,8 +33,8 @@ const FILTERED_MARKER = '[内容已屏蔽]';
  * @returns {Promise<string>} - 返回提示词内容
  */
 async function getSystemPrompt(type) {
-  if (!type || type === 'adventure_story') {
-    const { default: prompt } = await import('./adventure_story_prompt.js');
+  if (!type || type === "adventure_story") {
+    const { default: prompt } = await import("./adventure_story_prompt.js");
     return prompt;
   }
 
@@ -40,7 +44,8 @@ async function getSystemPrompt(type) {
     return prompt;
   } catch (error) {
     console.warn(`未找到提示词文件: ${promptPath}，使用默认提示词`);
-    const { default: defaultPrompt } = await import('./adventure_story_prompt.js');
+    const { default: defaultPrompt } =
+      await import("./adventure_story_prompt.js");
     return defaultPrompt;
   }
 }
@@ -53,7 +58,9 @@ async function getSystemPrompt(type) {
 function containsBlacklistWords(text) {
   if (!text) return false;
   const lowerText = text.toLowerCase();
-  return PROMPT_BLACKLIST.some(word => lowerText.includes(word.toLowerCase()));
+  return PROMPT_BLACKLIST.some((word) =>
+    lowerText.includes(word.toLowerCase()),
+  );
 }
 
 /**
@@ -62,18 +69,18 @@ function containsBlacklistWords(text) {
  * @returns {object} - 过滤后的消息
  */
 function filterMessageContent(message) {
-  if (!message || message.role !== 'user') {
+  if (!message || message.role !== "user") {
     return message;
   }
 
-  if (!message.content || typeof message.content !== 'string') {
+  if (!message.content || typeof message.content !== "string") {
     return message;
   }
 
   if (containsBlacklistWords(message.content)) {
     return {
       ...message,
-      content: FILTERED_MARKER
+      content: FILTERED_MARKER,
     };
   }
 
@@ -90,42 +97,44 @@ function filterMessages(messages) {
     return messages;
   }
 
-  return messages.map(msg => filterMessageContent(msg));
+  return messages.map((msg) => filterMessageContent(msg));
 }
 
 /**
  * 处理聊天请求
  */
 async function handleChat(req, res) {
-  let body = '';
+  let body = "";
 
-  req.on('data', chunk => {
+  req.on("data", (chunk) => {
     body += chunk;
   });
 
-  req.on('end', async () => {
+  req.on("end", async () => {
     try {
       const requestData = JSON.parse(body);
-      
+
       // 获取模型名称（如果未指定，使用配置的默认模型）
       const model = requestData.model || AI_MODEL;
-      
+
       // 获取提示词类型，默认为 adventure_story
-      const promptType = requestData.type || 'adventure_story';
-      
+      const promptType = requestData.type || "adventure_story";
+
       // 过滤提示词
       let filteredData = requestData;
       if (ENABLE_PROMPT_FILTER && requestData.messages) {
         filteredData = {
           ...requestData,
-          messages: filterMessages(requestData.messages)
+          messages: filterMessages(requestData.messages),
         };
-        
+
         // 检查是否有内容被过滤
-        const hasFiltered = filteredData.messages.some((msg, idx) => 
-          msg.content === FILTERED_MARKER && requestData.messages[idx]?.content !== FILTERED_MARKER
+        const hasFiltered = filteredData.messages.some(
+          (msg, idx) =>
+            msg.content === FILTERED_MARKER &&
+            requestData.messages[idx]?.content !== FILTERED_MARKER,
         );
-        
+
         if (hasFiltered) {
           console.log(`[${new Date().toISOString()}] 提示词已屏蔽`);
         }
@@ -137,10 +146,10 @@ async function handleChat(req, res) {
       // 将系统提示词添加到 messages 最前面
       const messagesWithSystem = [
         {
-          role: 'system',
-          content: systemPrompt
+          role: "system",
+          content: systemPrompt,
         },
-        ...filteredData.messages
+        ...filteredData.messages,
       ];
 
       // 使用 OpenAI SDK 调用 AI 后端
@@ -151,25 +160,29 @@ async function handleChat(req, res) {
 
       // 返回响应给客户端
       res.writeHead(200, {
-        'Content-Type': 'application/json',
-        'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Methods': 'POST, GET, OPTIONS',
-        'Access-Control-Allow-Headers': 'Content-Type, Authorization'
+        "Content-Type": "application/json",
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Methods": "POST, GET, OPTIONS",
+        "Access-Control-Allow-Headers": "Content-Type, Authorization",
       });
       res.end(JSON.stringify(response));
+    } catch (error) {
+      console.error(
+        `[${new Date().toISOString()}] 处理请求失败:`,
+        error.message,
+      );
 
-      } catch (error) {
-        console.error(`[${new Date().toISOString()}] 处理请求失败:`, error.message);
-        
-        res.writeHead(500, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({
+      res.writeHead(500, { "Content-Type": "application/json" });
+      res.end(
+        JSON.stringify({
           error: {
-            message: '服务器处理请求失败',
-            type: 'server_error'
-          }
-        }));
-      }
-    });
+            message: "服务器处理请求失败",
+            type: "server_error",
+          },
+        }),
+      );
+    }
+  });
 }
 
 /**
@@ -177,9 +190,9 @@ async function handleChat(req, res) {
  */
 function handleCors(res) {
   res.writeHead(200, {
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Methods': 'POST, GET, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type, Authorization'
+    "Access-Control-Allow-Origin": "*",
+    "Access-Control-Allow-Methods": "POST, GET, OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type, Authorization",
   });
   res.end();
 }
@@ -188,15 +201,17 @@ function handleCors(res) {
  * 健康检查
  */
 function handleHealth(res) {
-  res.writeHead(200, { 'Content-Type': 'application/json' });
-  res.end(JSON.stringify({
-    status: 'ok',
-    timestamp: new Date().toISOString(),
-    promptFilter: {
-      enabled: ENABLE_PROMPT_FILTER,
-      blacklistCount: PROMPT_BLACKLIST.length
-    }
-  }));
+  res.writeHead(200, { "Content-Type": "application/json" });
+  res.end(
+    JSON.stringify({
+      status: "ok",
+      timestamp: new Date().toISOString(),
+      promptFilter: {
+        enabled: ENABLE_PROMPT_FILTER,
+        blacklistCount: PROMPT_BLACKLIST.length,
+      },
+    }),
+  );
 }
 
 /**
@@ -209,24 +224,26 @@ const server = http.createServer((req, res) => {
   console.log(`[${new Date().toISOString()}] ${req.method} ${url.pathname}`);
 
   // 处理 CORS 预检请求
-  if (req.method === 'OPTIONS') {
+  if (req.method === "OPTIONS") {
     handleCors(res);
     return;
   }
 
   // 路由处理
-  if (url.pathname === '/api/chat' && req.method === 'POST') {
+  if (url.pathname === "/api/chat" && req.method === "POST") {
     handleChat(req, res);
-  } else if (url.pathname === '/health' && req.method === 'GET') {
+  } else if (url.pathname === "/health" && req.method === "GET") {
     handleHealth(res);
   } else {
-    res.writeHead(404, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({
-      error: {
-        message: '未找到请求的端点',
-        type: 'not_found'
-      }
-    }));
+    res.writeHead(404, { "Content-Type": "application/json" });
+    res.end(
+      JSON.stringify({
+        error: {
+          message: "未找到请求的端点",
+          type: "not_found",
+        },
+      }),
+    );
   }
 });
 
@@ -237,7 +254,7 @@ server.listen(PORT, () => {
   console.log(`========================================`);
   console.log(`  端口: ${PORT}`);
   console.log(`  地址: http://localhost:${PORT}`);
-  console.log(`  提示词过滤: ${ENABLE_PROMPT_FILTER ? '已启用' : '已禁用'}`);
+  console.log(`  提示词过滤: ${ENABLE_PROMPT_FILTER ? "已启用" : "已禁用"}`);
   if (ENABLE_PROMPT_FILTER) {
     console.log(`  黑名单词汇: ${PROMPT_BLACKLIST.length} 个`);
   }
@@ -249,7 +266,7 @@ server.listen(PORT, () => {
 });
 
 // 错误处理
-server.on('error', (error) => {
+server.on("error", (error) => {
   console.error(`服务器错误:`, error.message);
   process.exit(1);
 });
