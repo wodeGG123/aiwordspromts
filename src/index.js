@@ -12,7 +12,7 @@ const AI_BASE_URL =
   process.env.AI_BASE_URL || "https://ark.cn-beijing.volces.com/api/v3";
 const AI_API_KEY =
   process.env.AI_API_KEY || "a5cccc9b-116e-40e1-9009-0c0f8fe56eb8";
-const AI_MODEL = process.env.AI_MODEL || "doubao-seed-character-260628";
+const AI_MODEL = process.env.AI_MODEL || "deepseek-v4-flash-260425";
 const ENABLE_PROMPT_FILTER = process.env.ENABLE_PROMPT_FILTER === "true";
 const PROMPT_BLACKLIST = (process.env.PROMPT_BLACKLIST || "")
   .split(",")
