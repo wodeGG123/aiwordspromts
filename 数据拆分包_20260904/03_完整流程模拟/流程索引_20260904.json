@@ -1,0 +1,58 @@
+[
+  {
+    "order": 1,
+    "id": "01_开局_start",
+    "operation_type": "start",
+    "expected_template_name": "新一轮事件",
+    "output_template_name": "新一轮事件",
+    "qa_only_fast_forward": false
+  },
+  {
+    "order": 2,
+    "id": "02_选择检定_choose",
+    "operation_type": "choose",
+    "expected_template_name": "检定",
+    "output_template_name": "检定",
+    "qa_only_fast_forward": false
+  },
+  {
+    "order": 3,
+    "id": "03_检定后结算_settle_check",
+    "operation_type": "settle_check",
+    "expected_template_name": "结算",
+    "output_template_name": "结算",
+    "qa_only_fast_forward": false
+  },
+  {
+    "order": 4,
+    "id": "04_新一轮_next_round",
+    "operation_type": "next_round",
+    "expected_template_name": "新一轮事件",
+    "output_template_name": "新一轮事件",
+    "qa_only_fast_forward": true
+  },
+  {
+    "order": 5,
+    "id": "05_选择战斗_choose",
+    "operation_type": "choose",
+    "expected_template_name": "战斗事件",
+    "output_template_name": "战斗事件",
+    "qa_only_fast_forward": false
+  },
+  {
+    "order": 6,
+    "id": "06_战斗后结算_battle_result",
+    "operation_type": "battle_result",
+    "expected_template_name": "结算",
+    "output_template_name": "结算",
+    "qa_only_fast_forward": false
+  },
+  {
+    "order": 7,
+    "id": "07_终章_finale",
+    "operation_type": "finale",
+    "expected_template_name": "终章",
+    "output_template_name": "终章",
+    "qa_only_fast_forward": false
+  }
+]

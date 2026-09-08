@@ -1,0 +1,10 @@
+package_context:
+  engine:
+    id: "adventure.engine.ai-led-five-template"
+    version: "2026.09.04.1"
+  world:
+    id: "world.western-fantasy.rules"
+    version: "2026.09.04.1"
+  dungeon:
+    id: "dungeon1.corrupted-demon-king.runtime"
+    version: "2026.09.04.1"

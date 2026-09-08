@@ -1,0 +1,31 @@
+{
+  "mode": "event_generation",
+  "expectedTemplateName": "新一轮事件",
+  "stage": "P5",
+  "includedEventIds": [
+    "M06"
+  ],
+  "includedRoleIds": [
+    "200000141",
+    "200000140",
+    "200000142",
+    "200000143",
+    "200000144"
+  ],
+  "includedRoleNames": [
+    "魔王",
+    "恶魔守卫",
+    "魔王侍卫盾",
+    "魔王侍卫剑",
+    "魔王侍卫牧师"
+  ],
+  "includedSceneIds": [
+    "scene_throne",
+    "scene_castle"
+  ],
+  "includedSceneNames": [
+    "魔王大厅",
+    "魔王城堡"
+  ],
+  "activeEventId": null
+}

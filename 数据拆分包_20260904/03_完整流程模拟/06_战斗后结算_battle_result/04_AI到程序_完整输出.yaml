@@ -1,0 +1,43 @@
+event_details:
+  template_name: "结算"
+  event_id: "M06"
+  current_round: 24
+  supply_value: 70
+  corruption_value: 25
+  current_theme: "王座回路断裂"
+  current_type: "主线事件结算"
+  scene_name: "魔王大厅"
+  steps:
+    - narration: "最后一面侍卫盾砸落在黑石地面，星穹法师标出的回路缺口随之暴露。花岗岩像鬼拔起嵌入地缝的岩翼，积压的黑潮不再流向王座，而是沿断裂纹路冲上穹顶。"
+    - dialogues:
+      - npc: "熔岩矮人王"
+        speech: "它吃进去的不是力量，是我们一路留下的选择。现在让它一件不少地吐出来。"
+    - narration: "冰原战士守住圣路，直到最后一道黑潮从村庄、森林与河畔镇的方向退去。魔王试图抓住王座扶手，扶手却在他掌下化成没有温度的灰。"
+    - dialogues:
+      - npc: "魔王"
+        speech: "回路断了，债却不会消失。你们救下的人，会记得是谁把代价带到他们门前。"
+    - narration: "王座在低沉轰鸣中向内塌陷。大厅外重新传来钟声，那声音不再逆着风走；沿途保全的记忆和证据没有被王座吞没，反而成为各地辨认腐化残迹的依据。"
+  summary:
+    - summary: "王座回路被摧毁，魔王失去对腐化运输线的控制"
+  story_patch:
+    completed_event_id: "M06"
+    selected_option_id: 1
+    outcome: "victory"
+    run_archetype: "corruption_hunt"
+    run_modifier_ids:
+      - "MOD_GHOST_TIDE"
+      - "MOD_FRACTURED_TRUST"
+    add_flags:
+      - "M06_COMBAT_CLEAR"
+    remove_flags: []
+    route_delta:
+      combat: 0
+      scheme: 0
+      cleanse: 0
+    npc_state_updates: []
+    memory_notes:
+      - "队伍利用保全的证据识破王座回路，并在圣路熄灭前击败魔王"
+    unresolved_hooks_added: []
+    unresolved_hooks_resolved:
+      - "魔王正把沿途的胜利转化为王座燃料"
+  final_chapter: true

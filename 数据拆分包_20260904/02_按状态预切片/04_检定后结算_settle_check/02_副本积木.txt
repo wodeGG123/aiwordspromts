@@ -1,0 +1,131 @@
+#副本：腐化魔王危机
+##这里定义可用资产、事件、路线、道具、奖励授权与结局。具体事件规则高于引擎默认和世界通用事实，但不得改动五个输出模板、固定枚举或runtime绝对状态。
+
+#场景迁移白名单
+##程序在接受“新一轮事件”时用manifest把scene_name映射为目标scene_id，并按下列无向连接校验；同场景重访始终合法。二级场景先连接其所属一级场景，只有下列明确额外连接允许跨支路。
+##scene_village连接scene_church、scene_forge、scene_tavern、scene_forgotten_cave、scene_forest；scene_forest连接scene_elf_camp、scene_vampire_manor、scene_swamp、scene_rivertown；scene_swamp额外连接scene_rivertown。
+##scene_rivertown连接scene_square、scene_inn、scene_black_market、scene_ancient_temple、scene_bandit_camp、scene_mountains；scene_mountains连接scene_dwarf_mine、scene_dragon_nest、scene_bandit_camp、scene_castle。
+##scene_castle连接scene_demon_altar、scene_time_rift、scene_throne；scene_church额外连接scene_light_temple；scene_light_temple只可在拥有M03_LINA_BLESSING、900003或cleanse≥2时与scene_castle形成一次剧情连接。
+##固定主线目标场景由事件表授权：M01 scene_village、M02 scene_forest、M03 scene_swamp、M04 scene_rivertown、M05 scene_castle、M06与B_P5_LAST_STAND均为scene_throne。固定轮到来时，AI可在该新事件开场叙述穿越连接路径，并把scene_name直接锁定为目标；程序不要求另造一个无选择的过渡事件。
+
+#圣物事件影响
+##持有10002“橡木护符”时，幽暗森林或幽灵沼泽中涉及辨路、腐化植被或自然生存的最近一次检定获得优势（+2）；持有10003“鸦羽墨囊”时，涉及普通幽灵、亡灵记忆或尸灯真伪的最近一次检定获得优势（+2）。
+##两者不降低基础难度、不重复叠加同源优势、不对Boss战生效。未列出的圣物不产生AI事件层影响，战斗数值仍由程序处理。
+
+#隐藏事件的线索与计划
+##隐藏事件不是无提示抽奖。第一次结算时，若程序没有提供隐藏计划，AI依据run_seed、路线和场景从H01-H07内部选择1-3项，用稳定flag持久化；合法计划flag只有PLAN_H01、PLAN_H02、PLAN_H03、PLAN_H04、PLAN_H05、PLAN_H06、PLAN_H07。未有对应PLAN flag的隐藏事件不得临时生成。
+##隐藏事件正式出现前，至少一个较早事件须加入对应线索flag；合法线索flag只有HINT_H01、HINT_H02、HINT_H03、HINT_H04、HINT_H05、HINT_H06、HINT_H07，并以世界内迹象写入memory_notes或unresolved_hooks；H01黏液王冠与避铁痕迹，H02失血兽尸与封蜡请柬，H03残图缺口与古老铭文，H04焦风、巨大抓痕与鳞片回响，H05动作重演与失时钟声，H06逆风钟鸣与微光圣痕，H07无火灰烬与地下搏动。
+##玩家只有在看见线索并满足事件条件后才可进入隐藏事件。线索不直接写“这里有隐藏事件”或承诺奖励；它应让细心玩家能够推断值得继续调查。
+##若阶段结束仍未满足条件，PLAN/HINT可以作为本局错过的支线保留，不强行插入。跨局recent_run_summaries用于降低相同隐藏计划连续出现的概率。
+
+#本局主压力与机械词缀
+##run_archetype只允许corruption_hunt、scarcity、ghost_tide、underworld、time_fracture五种之一，决定主要叙事压力。生产环境由程序在start前按下列公式确定，AI不补选。
+##主压力有序表为[corruption_hunt,scarcity,ghost_tide,underworld,time_fracture]。令base=abs(run_seed)，先取base mod 5；若与recent_run_summaries最近一局run_archetype相同，则循环后移1位。结果固定整局。
+##每局选择2个run_modifier_ids。词缀有序表按下文出现顺序排列10项；第一项从(base+13) mod 10起循环取第一个合法项；第二项从(base+37) mod 10起循环扫描，必须与第一项不同互斥组。若第一项已经与最近一局重合，第二项还必须避开最近一局两个词缀；否则第二项最多允许造成1项跨局重合。程序保存结果并在首轮输入，AI只应用。所有数值效果只应用一次，检定最终仍限制在0-20。
+##MOD_FAMINE 饥荒余波〔资源组〕：每轮档位基础消耗额外supply-1；R_P1_TAINTED_GRANARY、R_P2_DROWNED_CAMP、R_P4_SIEGE_CART基础权重×1.5。
+##MOD_BROKEN_ROADS 断路风暴〔资源组〕：过渡、攀爬、涉水类检定难度+2；这类失败造成的supply损失额外-2；R_P1_BROKEN_BRIDGE、R_P4_AVALANCHE权重×1.5。
+##MOD_GHOST_TIDE 亡魂潮〔异常组〕：幽灵与记忆类事件权重×1.5；相关净化检定难度-2，失败时corruption额外+3。
+##MOD_TIME_ECHO 时序回声〔异常组〕：R_P2_ECHO_HUNTER、R_P5_TIME_CHAMBER和H05权重×1.75；每阶段第一次隐藏检定难度-2，但失败时corruption额外+3。
+##MOD_BLOOD_MOON 血月围猎〔遭遇组〕：伏击与精英事件权重×1.5；战斗阵容按档位规则强化但仍最多4名；战斗失败或撤退额外supply-2。
+##MOD_DEMON_PATROLS 恶魔巡猎〔遭遇组〕：P4-P5战斗事件权重×1.5；恶魔相关交涉检定难度+2；成功绕过恶魔时corruption-3。
+##MOD_BLACK_MARKET 黑市暗潮〔交涉组〕：黑市、走私与交易事件权重×1.5；相关社交或狡诈检定难度-2；接受黑暗交易时corruption额外+3。
+##MOD_FRACTURED_TRUST 猜疑蔓延〔交涉组〕：没有猎人信任、NPC承诺或证据时，社交检定难度+2；拥有任一真实信任依据时取消该惩罚并获得一个+2情境优势。
+##MOD_SACRED_ECHO 圣迹复苏〔腐化组〕：净化事件权重×1.5；每次事件结算的corruption降低量额外增加3但单次最多降低20；黑暗交易的corruption增加量额外+3。
+##MOD_DEEP_CORRUPTION 深层侵蚀〔腐化组〕：所有检定失败造成的corruption增加量额外+3；R_P3_PLAGUE_WELL、R_P5_SOUL_PRISON、H07权重×1.5；净化成功不受削弱。
+##互斥组为资源、异常、遭遇、交涉、腐化；同组词缀不得同时选择。首轮必须通过天气、伤亡、NPC告诫或异常现象自然表现两个词缀，禁止直接朗读ID、倍率或规则；之后至少每4轮让一个词缀产生一次可见机械或叙事反馈。
+
+#局内道具表
+##所有局内道具离开副本清空。局内道具ID使用900000号段，与服务器永久圣物、因缘和装备材料ID隔离。
+##900001 圣水：事件3净化路线消耗1；可在P1教堂事件获得。
+##900002 魔王印记：事件5谋略路线消耗1；通过M04黑暗合作或稀有黑市事件获得。
+##900003 圣心残片：事件6净化路线核心条件；通过H03古老神庙获得。
+##900004 粘液核心：M04调查的优势来源；通过M01谋略成功或H01史莱姆王获得。
+##900005 龙心余烬：M06战斗路线只产生可见战术反馈、不修改程序战斗数值；M06净化检定提供优势+2。通过H04巨龙事件获得。
+##900006 时序碎片：可消耗以修复H05时间裂缝；持有时开放M06谋略路线并为该检定提供优势+2。通过M03或异常事件获得。
+##900007 未来战术书：M06战斗路线只产生可见战术反馈；M06谋略检定提供优势+2。通过H05获得。
+##900008 光明印记：增强M06净化路线；通过H06光明神殿获得。
+##900009 腐化核心：获得时由H07一次性增加corruption+15；之后持有可开放M06谋略路线并为该检定提供优势+2，不再次增加腐化。通过H07恶魔祭坛获得。
+##900010 龙鳞信物：触发H04；P4稀有探索获得。
+##900011 古老地图：触发H03；P3线索事件获得。
+##900020 猎人信任：M02追踪检定提供优势+2，不改变基础难度；M01解决危机后获得。
+##900021 黑市账页：使M04谋略路线直接成功；P3线索事件获得。
+##900022 莉娜记忆：使M05古老法师提供净化入口；M03非暴力解决获得。
+##900050 材料奖励触发标记：纯协议层信号，只允许正count；程序立即拦截并生成具体材料，不加入current_package.tools、不显示内部ID或名称、不可消费。
+##900060 圣物奖励触发标记：纯协议层信号，每局最多1次；程序立即拦截并生成具体圣物，不加入current_package.tools。
+##900061 因缘奖励触发标记：纯协议层信号，每局最多1次；仅H04驯龙成功或以后明确授权的因缘事件产生，程序立即拦截并生成具体因缘。
+
+#永久奖励授权
+##仅授权局内道具表中的900050、900060、900061作为永久奖励触发信号；每个具体事件是否可以产生、次数上限和前置条件以事件表及随机事件规则为准。
+##材料、圣物和因缘的具体内容由程序生成；AI只决定何时满足事件条件，不判断首通、周首次、概率、保底、账号拥有状态或最终入账。
+
+#叙事与内容定位
+##整体情绪是阴暗但可抵抗的英雄冒险：威胁真实、失败昂贵，但玩家的调查、牺牲和关系经营能够改变局势。事件应逐步揭示腐化运输、灵魂利用和时空操纵之间的联系，同时保留村民、商人、亡者与守护者的日常生活、善意、幽默、利益冲突和各自选择。
+##场景只能使用资产表中的精确name；内部事件表的scene_id只用于选择场景，不得作为输出字段。场景转换遵循连接关系，不得瞬移到无关地图。
+##主线、隐藏和随机事件都只能使用所选事件asset_scope中的本地角色与场景。core是事件可依赖的核心资产，possible由AI结合runtime选择；角色表的轮数、条件与权重仅用于策划资产生产，不再覆盖事件的显式范围。当前队员仍不得作为NPC或敌人。
+
+#终章条件
+##成功条件：M06的战斗、谋略、净化或B_P5_LAST_STAND之一按事件规则成功；AI在结算中输出对应成功flag与final_chapter=true，程序依据event_id、outcome与白名单把run_status设置为cleared。战斗路线只有程序返回victory后才可通关；谋略与净化路线只有对应检定成功后才可通关。
+##失败条件除引擎通用资源与全灭阈值外，还包括M05失去全部可行入口、M06最终分支失败，以及副本事件明确使核心任务不可达。AI通过story_patch提案，最终run_status由程序确认。
+##终章不少于800字，必须回收至少3项本局真实发生的路线、局内道具、重要选择、牺牲、词缀或隐藏/随机事件影响，不提未触发事件。
+
+#随机事件补充规则
+##随机事件必须选择本次included_event_ids中某个R_P事件YAML，并严格使用其阶段、核心冲突、分支授权、奖励边界和asset_scope；具体NPC、敌人与目标场景不得越过该事件自己的core/possible范围。current_team始终可作为主角参与。
+##材料奖励触发标记900050只允许由明确写有该奖励的具体骨架、主线或隐藏事件产生；普通事件一次最多count=1，精英事件一次最多count=2。material_reward_slots_remaining为0时不得输出。
+##圣物奖励触发标记900060只能由R_P5_THRONE_GUARD或事件表明确授权的精英/稀有隐藏事件产生，每局最多1次；因缘触发标记900061仅能由H04驯龙成功或以后明确授权的因缘事件产生，每局最多1次。
+##随机选项的直接数值变化限制为supply±3至10、corruption±3至15，再应用已选词缀明确规定的单次修正。gold或diamond只允许在骨架分别明确标记对应allowed且满足对应policy时输出。
+##不得用随机事件新增世界地图、主线Boss、表外NPC、表外敌人、表外局内道具或未经程序揭晓的永久奖励。
+
+#结构化事件定义契约
+##以下事件记录使用YAML。schedule、asset_scope和ai_selection是程序与AI共同遵守的权威字段，rules_text是AI负责解释的剧情与后果规则；不得从rules_text反向猜测或扩大程序字段。
+##asset_scope.roles.core与possible的并集是该事件可出场、发言、行动或成为敌人的本地角色全集；asset_scope.scenes.core与possible的并集是该事件可作为目标地点的场景全集。core表示事件可以依赖的核心资产，possible由AI结合current_team、story_state、当前位置与近期重复情况选择，不要求全部使用。rules_text可以把未列入范围的已知角色或地点当作不在场的背景信息提及，但这种提及不授权其现身、发言、行动、参战或成为本轮目标场景。
+##候选事件合并装载的资产只是传输层并集。AI选定event_id后，必须回到该事件自身asset_scope，不能借用另一个候选事件的角色或场景。current_team始终可参与，不受本地角色范围限制；include_current_scene_context只授权理解开场位置，不自动把当前位置变成目标场景。
+##程序直接读取结构化字段完成轮数/阶段过滤与资产装载，不扫描rules_text、角色名称或场景名称推断关系。复杂PLAN/HINT、道具、关系、路线与叙事适配仍由AI依据rules_text和runtime判断。
+
+#本次上下文范围
+##mode=active_event；included_event_ids=[M01]；active_event_id=M01。本段由装配器生成，不属于玩家可见输出。
+
+#当前事件完整YAML
+event_definition:
+  schema_version: "dungeon-event-yaml-v1"
+  event_id: "M01"
+  event_type: "main"
+  schedule:
+    phases: ["P1"]
+    round_min: 1
+    round_max: 1
+    fixed: true
+    repeatable: false
+  asset_scope:
+    roles:
+      core:
+        - role_id: "200000129"
+          name: "村长艾德"
+        - role_id: "200000130"
+          name: "史莱姆"
+      possible:
+        - role_id: "290000011"
+          name: "重甲守卫"
+      optional_select_min: 0
+      optional_select_max: 1
+    scenes:
+      core:
+        - scene_id: "scene_village"
+          name: "艾德村庄"
+      possible: []
+      include_current_scene_context: true
+      optional_select_min: 0
+      optional_select_max: 0
+  ai_selection:
+    owner: ai
+    closed_scope: true
+  rules_text: |-
+    ##M01 边境求援
+    ###阶段与轮数：P1，第1轮固定。场景：scene_village / 艾德村庄。叙事NPC：村长艾德。战斗敌人：史莱姆200000130×4。failure_tier=T1。
+    ###表面目标与转折：表面是史莱姆抢粮；证据是它们避开近处活人、反复撞击旧井图。转折为“袭击其实在搜寻或标记某物”，幕后力量把村庄当作通往森林的路标。
+    ###选项1：迎着黏液潮挡在村民身前；resolution_type=battle。victory：combat+1、猎人信任900020×1、材料奖励触发标记900050×1、M01_COMBAT、M01_CLUE_DAMAGED；村民获救但黑纹证据被战斗破坏。defeat：corruption+5、M01_VILLAGE_BREACHED、村长艾德=wary，无成功奖励，主线继续。retreat：supply-5、M01_VILLAGE_BREACHED、村长艾德=wary，无成功奖励，主线继续。
+    ###选项2：推倒旧货车封住狭巷；resolution_type=check；standard_fixed intelligence难度12。success：scheme+1、粘液核心900004×1、猎人信任900020×1、M01_SCHEME、村长艾德=trusted。great_success：在成功基础上免除后续一次追踪腐化痕迹的情境劣势，并加入M01_WELL_MAP_INTACT。failure：supply-5、M01_FAILED_CLUE、村长艾德=neutral，主线继续。
+    ###选项3：俯身观察黏液中的黑纹；resolution_type=check；hidden_attribute perception难度13。success：cleanse+1、corruption-5、猎人信任900020×1、M01_CLEANSE、M01_CORRUPTION_SIGNATURE。great_success：先按隐藏计划规则选择并写入PLAN，再加入与其中一个PLAN相符的合法HINT，不能额外发永久奖励。failure：corruption+5、M01_MARK_TOUCHED，主线继续。
+    ###链条回收：M02必须引用旧井图、黑纹或村庄受损状态之一；M01_CLUE_DAMAGED使M02追踪不能获得“证据完整”优势，M01_WELL_MAP_INTACT或M01_CORRUPTION_SIGNATURE则提供一次可见帮助。
+
+#当前结算局部自检
+##只在内部检查：event_id、option_id与pending_interaction是否一致；检定或战斗结果是否逐字服从程序回传；是否只应用当前事件该结果授权的后果且没有成功失败混发；story_patch是否只提交一次；永久奖励信号、局内道具与final_chapter是否满足当前事件及剩余配额。

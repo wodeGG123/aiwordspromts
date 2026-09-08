@@ -1,0 +1,57 @@
+{
+  "version": "2026.09.04.1",
+  "source_of_truth": "腐化魔王危机_预切片积木入口_20260904.mjs",
+  "system_order": [
+    "engine_by_expected_template",
+    "world_full",
+    "dungeon_by_context",
+    "engine_final_check"
+  ],
+  "user_order": [
+    "#本次程序运行态输入",
+    "runtime_yaml"
+  ],
+  "response": "一份无JSON包装的原始YAML正文",
+  "operations": {
+    "start": {
+      "folder": "02_按状态预切片/01_开局_start",
+      "expected_template_name": "新一轮事件",
+      "context_mode": "event_generation"
+    },
+    "next_round": {
+      "folder": "02_按状态预切片/02_新一轮_next_round",
+      "expected_template_name": "新一轮事件",
+      "context_mode": "event_generation"
+    },
+    "choose:check": {
+      "folder": "02_按状态预切片/03_选择检定_choose",
+      "expected_template_name": "检定",
+      "context_mode": "active_event"
+    },
+    "settle_check": {
+      "folder": "02_按状态预切片/04_检定后结算_settle_check",
+      "expected_template_name": "结算",
+      "context_mode": "active_event"
+    },
+    "choose:battle": {
+      "folder": "02_按状态预切片/05_选择战斗_choose",
+      "expected_template_name": "战斗事件",
+      "context_mode": "active_event"
+    },
+    "battle_result": {
+      "folder": "02_按状态预切片/06_战斗后结算_battle_result",
+      "expected_template_name": "结算",
+      "context_mode": "active_event"
+    },
+    "choose:direct": {
+      "folder": "02_按状态预切片/07_选择直接结算_choose_direct",
+      "expected_template_name": "结算",
+      "context_mode": "active_event"
+    },
+    "finale": {
+      "folder": "02_按状态预切片/08_终章_finale",
+      "expected_template_name": "终章",
+      "context_mode": "finale"
+    }
+  }
+}

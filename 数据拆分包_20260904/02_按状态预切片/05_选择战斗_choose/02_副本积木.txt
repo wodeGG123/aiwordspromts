@@ -1,0 +1,89 @@
+#副本：腐化魔王危机
+##这里定义可用资产、事件、路线、道具、奖励授权与结局。具体事件规则高于引擎默认和世界通用事实，但不得改动五个输出模板、固定枚举或runtime绝对状态。
+
+#战斗实体分类
+##只有本节或具体事件敌人组明确列出的角色才能进入enemies。角色表的权重只控制叙事候选，不代表可作为敌人；叙事NPC、受救援者和商人不得因权重或品质被当成敌人。
+##可重复普通敌人：史莱姆、巨熊、狂狼、荆棘守卫、喷吐毒花、孢子蘑菇、苔藓古卫、普通幽灵、诅咒娃娃、骷髅火枪手、亡灵守卫、亡灵巫师、吸血鬼仆从盾、影刃刺客、普通强盗、双刀豺狼人、投网豺狼人、地精拳击手、火箭筒地精、维修地精、暗影窃贼、银月刺客、小恶魔·扎克、钢颚·加尔、血角·赛娜、魔剑术士。
+##可替换精英敌人：毒藤母体、哀嚎女妖、诅咒巫师、豺狼人督头、癫狂豺狼萨满、地精工头、优雅毒师、雷电符文巨魔像、霜鬃猛犸、黑翼飞龙、恶魔守卫。只能在角色表当前轮数、条件和场景均合法时使用。
+##固定唯一敌人：史莱姆王、幽灵莉娜、吸血鬼贵族、强盗头领、巨龙、魔王、魔王侍卫盾、魔王侍卫剑、魔王侍卫牧师。只能由对应主线、隐藏事件、B_P5_LAST_STAND或明确点名的R_P5_THRONE_GUARD使用，不参与档位随机增加或替换。
+##hard/nightmare强化只在上述普通/精英池内进行；若没有同场景合法对象则保持normal组合。不得用实习牧师、重甲守卫、猎人、林地士兵、镇民、商人、治疗师、学者、山民或其它叙事角色补位。
+
+#本局主压力与机械词缀
+##run_archetype只允许corruption_hunt、scarcity、ghost_tide、underworld、time_fracture五种之一，决定主要叙事压力。生产环境由程序在start前按下列公式确定，AI不补选。
+##主压力有序表为[corruption_hunt,scarcity,ghost_tide,underworld,time_fracture]。令base=abs(run_seed)，先取base mod 5；若与recent_run_summaries最近一局run_archetype相同，则循环后移1位。结果固定整局。
+##每局选择2个run_modifier_ids。词缀有序表按下文出现顺序排列10项；第一项从(base+13) mod 10起循环取第一个合法项；第二项从(base+37) mod 10起循环扫描，必须与第一项不同互斥组。若第一项已经与最近一局重合，第二项还必须避开最近一局两个词缀；否则第二项最多允许造成1项跨局重合。程序保存结果并在首轮输入，AI只应用。所有数值效果只应用一次，检定最终仍限制在0-20。
+##MOD_FAMINE 饥荒余波〔资源组〕：每轮档位基础消耗额外supply-1；R_P1_TAINTED_GRANARY、R_P2_DROWNED_CAMP、R_P4_SIEGE_CART基础权重×1.5。
+##MOD_BROKEN_ROADS 断路风暴〔资源组〕：过渡、攀爬、涉水类检定难度+2；这类失败造成的supply损失额外-2；R_P1_BROKEN_BRIDGE、R_P4_AVALANCHE权重×1.5。
+##MOD_GHOST_TIDE 亡魂潮〔异常组〕：幽灵与记忆类事件权重×1.5；相关净化检定难度-2，失败时corruption额外+3。
+##MOD_TIME_ECHO 时序回声〔异常组〕：R_P2_ECHO_HUNTER、R_P5_TIME_CHAMBER和H05权重×1.75；每阶段第一次隐藏检定难度-2，但失败时corruption额外+3。
+##MOD_BLOOD_MOON 血月围猎〔遭遇组〕：伏击与精英事件权重×1.5；战斗阵容按档位规则强化但仍最多4名；战斗失败或撤退额外supply-2。
+##MOD_DEMON_PATROLS 恶魔巡猎〔遭遇组〕：P4-P5战斗事件权重×1.5；恶魔相关交涉检定难度+2；成功绕过恶魔时corruption-3。
+##MOD_BLACK_MARKET 黑市暗潮〔交涉组〕：黑市、走私与交易事件权重×1.5；相关社交或狡诈检定难度-2；接受黑暗交易时corruption额外+3。
+##MOD_FRACTURED_TRUST 猜疑蔓延〔交涉组〕：没有猎人信任、NPC承诺或证据时，社交检定难度+2；拥有任一真实信任依据时取消该惩罚并获得一个+2情境优势。
+##MOD_SACRED_ECHO 圣迹复苏〔腐化组〕：净化事件权重×1.5；每次事件结算的corruption降低量额外增加3但单次最多降低20；黑暗交易的corruption增加量额外+3。
+##MOD_DEEP_CORRUPTION 深层侵蚀〔腐化组〕：所有检定失败造成的corruption增加量额外+3；R_P3_PLAGUE_WELL、R_P5_SOUL_PRISON、H07权重×1.5；净化成功不受削弱。
+##互斥组为资源、异常、遭遇、交涉、腐化；同组词缀不得同时选择。首轮必须通过天气、伤亡、NPC告诫或异常现象自然表现两个词缀，禁止直接朗读ID、倍率或规则；之后至少每4轮让一个词缀产生一次可见机械或叙事反馈。
+
+#叙事与内容定位
+##整体情绪是阴暗但可抵抗的英雄冒险：威胁真实、失败昂贵，但玩家的调查、牺牲和关系经营能够改变局势。事件应逐步揭示腐化运输、灵魂利用和时空操纵之间的联系，同时保留村民、商人、亡者与守护者的日常生活、善意、幽默、利益冲突和各自选择。
+##场景只能使用资产表中的精确name；内部事件表的scene_id只用于选择场景，不得作为输出字段。场景转换遵循连接关系，不得瞬移到无关地图。
+##主线、隐藏和随机事件都只能使用所选事件asset_scope中的本地角色与场景。core是事件可依赖的核心资产，possible由AI结合runtime选择；角色表的轮数、条件与权重仅用于策划资产生产，不再覆盖事件的显式范围。当前队员仍不得作为NPC或敌人。
+
+#结构化事件定义契约
+##以下事件记录使用YAML。schedule、asset_scope和ai_selection是程序与AI共同遵守的权威字段，rules_text是AI负责解释的剧情与后果规则；不得从rules_text反向猜测或扩大程序字段。
+##asset_scope.roles.core与possible的并集是该事件可出场、发言、行动或成为敌人的本地角色全集；asset_scope.scenes.core与possible的并集是该事件可作为目标地点的场景全集。core表示事件可以依赖的核心资产，possible由AI结合current_team、story_state、当前位置与近期重复情况选择，不要求全部使用。rules_text可以把未列入范围的已知角色或地点当作不在场的背景信息提及，但这种提及不授权其现身、发言、行动、参战或成为本轮目标场景。
+##候选事件合并装载的资产只是传输层并集。AI选定event_id后，必须回到该事件自身asset_scope，不能借用另一个候选事件的角色或场景。current_team始终可参与，不受本地角色范围限制；include_current_scene_context只授权理解开场位置，不自动把当前位置变成目标场景。
+##程序直接读取结构化字段完成轮数/阶段过滤与资产装载，不扫描rules_text、角色名称或场景名称推断关系。复杂PLAN/HINT、道具、关系、路线与叙事适配仍由AI依据rules_text和runtime判断。
+
+#本次上下文范围
+##mode=active_event；included_event_ids=[M06]；active_event_id=M06。本段由装配器生成，不属于玩家可见输出。
+
+#当前事件完整YAML
+event_definition:
+  schema_version: "dungeon-event-yaml-v1"
+  event_id: "M06"
+  event_type: "main"
+  schedule:
+    phases: ["P5"]
+    round_min: 22
+    round_max: 24
+    fixed: false
+    repeatable: false
+  asset_scope:
+    roles:
+      core:
+        - role_id: "200000141"
+          name: "魔王"
+      possible:
+        - role_id: "200000140"
+          name: "恶魔守卫"
+        - role_id: "200000142"
+          name: "魔王侍卫盾"
+        - role_id: "200000143"
+          name: "魔王侍卫剑"
+        - role_id: "200000144"
+          name: "魔王侍卫牧师"
+      optional_select_min: 0
+      optional_select_max: 3
+    scenes:
+      core:
+        - scene_id: "scene_throne"
+          name: "魔王大厅"
+      possible: []
+      include_current_scene_context: true
+      optional_select_min: 0
+      optional_select_max: 0
+  ai_selection:
+    owner: ai
+    closed_scope: true
+  rules_text: |-
+    ##M06 魔王终局
+    ###阶段与轮数：P5，第22-24轮安排；场景：scene_throne / 魔王大厅。叙事NPC：魔王。战斗敌人：魔王200000141×1、魔王侍卫盾200000142×1、魔王侍卫剑200000143×1、魔王侍卫牧师200000144×1。failure_tier=T4。
+    ###表面目标与转折：表面是击败或逼退魔王；转折必须由本局证据决定：他在利用城门试炼、黑暗印记或时间碎片把队伍过去的胜利转为王座燃料。玩家此前保住的记忆、NPC、圣路与证据决定能否切断这层反制。
+    ###选项1：迎着王座前的黑潮前进；resolution_type=battle；combat≥3、龙心余烬900005或未来战术书900007提供世界内战术反馈但不删敌人、不修改程序战斗数值。victory：M06_COMBAT_CLEAR、final_chapter=true，程序确认cleared。defeat或retreat：M06_COMBAT_FAILED、final_chapter=true，无成功奖励，程序确认failed。
+    ###选项2：用掌握的秘密逼他让步；resolution_type=check；hidden_context难度20；available条件scheme≥3或拥有900006/900007/900009。900006、900007、900009、M04_EVIDENCE、M04_GATE_CIPHER、M03_TRUE_WARNING、P5_SOULS_FREED或P5_TIME_INSIGHT各可提供有依据的优势但总加值受上限；M04_LEDGER_BURNED或M03_MEMORY_SHATTERED不额外惩罚但代表缺失证据。success或great_success：M06_SCHEME_CLEAR、final_chapter=true，程序确认cleared；大成功只能改善终章中的NPC/区域后果，不额外发永久奖励。failure：若current_round<24、run_status=ongoing且本次corruption+12后的未钳制结果仍低于100，则corruption+12、M06_SCHEME_BACKFIRED、final_chapter=false，下一轮必须生成B_P5_LAST_STAND且只有一个战斗选项；否则加入M06_SCHEME_FAILED并final_chapter=true，程序确认failed。
+    ###选项3：将圣心残片嵌入法阵；resolution_type=check；hidden_context难度20；available条件cleanse≥3且拥有圣心残片900003；光明印记900008、龙心余烬900005、M03_LINA_BLESSING、M05_HOLY_ROUTE、H03_LOCK_MASTERED、H04_DRAGON_COUNSEL、P4_SHRINE_ECHO或P5_SOULS_FREED为优势但总加值受上限。success或great_success：消耗900003×1、M06_CLEANSE_CLEAR、final_chapter=true，程序确认cleared；大成功只改善区域/NPC后果。failure：不消耗900003，加入M06_CLEANSE_FAILED、final_chapter=true，无成功奖励，程序确认failed。AI不得通过开场文案临时改变失败是否消耗道具。
+    ###最后反扑：稳定event_id为B_P5_LAST_STAND，只能承接M06_SCHEME_BACKFIRED且每局最多一次；场景scene_throne，只有一个template_name为“战斗事件”的可用选项，敌人从魔王侍卫盾、魔王侍卫剑、魔王侍卫牧师、恶魔守卫中选择恰好4名且同名可重复规则服从战斗池。victory设置M06_LAST_STAND_CLEAR、final_chapter=true并由程序确认cleared；defeat或retreat设置M06_LAST_STAND_FAILED、final_chapter=true并由程序确认failed。不得再次提供谋略或净化选项。
+
+#当前战斗局部自检
+##只在内部检查：event_id、option_id与pending_interaction是否一致；scene_name是否仍为锁定场景；敌人是否全部属于当前事件asset_scope和合法战斗池、没有使用current_team名称且总数不超过4；是否没有提前输出summary、story_patch或胜负。

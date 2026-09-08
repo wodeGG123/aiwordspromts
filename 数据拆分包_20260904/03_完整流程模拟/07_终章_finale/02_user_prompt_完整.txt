@@ -1,0 +1,119 @@
+#本次程序运行态输入
+package_context:
+  engine: {id: "adventure.engine.ai-led-five-template", version: "2026.09.04.1"}
+  world: {id: "world.western-fantasy.rules", version: "2026.09.04.1"}
+  dungeon: {id: "dungeon1.corrupted-demon-king.runtime", version: "2026.09.04.1"}
+operation:
+  request_id: "qa_07_finale"
+  type: "finale"
+  expected_template_name: "终章"
+run_id: "qa_run_20260904_001"
+state_version: 23
+run_difficulty: "normal"
+run_seed: 1001
+current_round: 24
+current_scene_id: "scene_throne"
+corruption_value: 25
+supply_value: 70
+run_status: "cleared"
+team_status: "active"
+current_package:
+  relics:
+    - id: 10002
+      name: "橡木护符"
+  tools: 
+    - {id: 900004, name: "粘液核心", count: 1}
+    - {id: 900022, name: "莉娜记忆", count: 1}
+    - {id: 900021, name: "黑市账页", count: 1}
+    - {id: 900008, name: "光明印记", count: 1}
+current_team:
+  - instance_id: "team_ice_001"
+    card_id: "card_ice_warrior_001"
+    name: "冰原战士"
+    quality: 4
+    profession: "战士"
+    gender: "男"
+    race: "人族"
+    personality: "勇敢"
+    origin_world_id: "western_fantasy"
+    origin_world_name: "西方魔幻世界"
+    attributes: {strength: 15, agility: 9, intelligence: 6, constitution: 14, physique: 14, dexterity: 8, perception: 10, knowledge: 6, survival: 13, social: 5, authority: 10, deception: 3}
+  - instance_id: "team_mage_001"
+    card_id: "card_star_mage_001"
+    name: "星穹法师"
+    quality: 5
+    profession: "法师"
+    gender: "女"
+    race: "人族"
+    personality: "理性"
+    attributes: {strength: 3, agility: 8, intelligence: 16, constitution: 7, physique: 6, dexterity: 12, perception: 13, knowledge: 15, survival: 5, social: 9, authority: 7, deception: 8}
+  - instance_id: "team_dwarf_001"
+    card_id: "card_lava_dwarf_king_001"
+    name: "熔岩矮人王"
+    quality: 5
+    profession: "重装战士"
+    gender: "男"
+    race: "矮人"
+    personality: "果断"
+    attributes: {strength: 14, agility: 6, intelligence: 10, constitution: 15, physique: 16, dexterity: 11, perception: 9, knowledge: 12, survival: 12, social: 7, authority: 14, deception: 4}
+  - instance_id: "team_gargoyle_001"
+    card_id: "card_granite_gargoyle_001"
+    name: "花岗岩像鬼"
+    quality: 4
+    profession: "守卫"
+    gender: "无"
+    race: "构装体"
+    personality: "沉稳"
+    attributes: {strength: 13, agility: 5, intelligence: 7, constitution: 17, physique: 18, dexterity: 6, perception: 11, knowledge: 8, survival: 9, social: 3, authority: 11, deception: 1}
+gold: 87647
+gold_policy:
+  enabled: true
+  allowed_spend_values: [100, 300, 500]
+  allowed_gain_values: [50, 100]
+  max_spend_per_event: 500
+  max_gain_per_event: 100
+  gain_limit_remaining: 200
+diamond: 1260
+diamond_policy:
+  enabled: false
+  allowed_spend_values: []
+  allowed_gain_values: []
+  max_spend_per_event: 0
+  max_gain_per_event: 0
+  gain_limit_remaining: 0
+story_state:
+  completed_events:
+    - {event_id: "M01", option_id: 2, outcome: "success"}
+    - {event_id: "M02", option_id: 2, outcome: "success"}
+    - {event_id: "M03", option_id: 2, outcome: "success"}
+    - {event_id: "M04", option_id: 2, outcome: "success"}
+    - {event_id: "M05", option_id: 3, outcome: "success"}
+    - {event_id: "M06", option_id: 1, outcome: "victory"}
+  story_flags: ["M01_SCHEME", "PLAN_H03", "PLAN_H05", "M02_FOUND_GHOST_TRAIL", "M03_MEMORY", "M04_EVIDENCE", "M05_HOLY_ROUTE", "M06_COMBAT_CLEAR"]
+  route_scores: {combat: 0, scheme: 4, cleanse: 3}
+  current_scene_id: "scene_throne"
+  visited_scene_ids: ["scene_village", "scene_forest", "scene_swamp", "scene_rivertown", "scene_castle", "scene_throne"]
+  npc_states:
+    - {npc: "村长艾德", state: "trusted"}
+    - {npc: "猎人马克", state: "cooperative"}
+    - {npc: "幽灵莉娜", state: "cooperative"}
+    - {npc: "古老法师", state: "trusted"}
+  unresolved_hooks: []
+  memory_notes:
+    - "完整井图帮助队伍识破森林伪造路标"
+    - "莉娜的记忆揭露了腐化运输线"
+    - "圣路已经在城门内打开，但王座仍在吸收黑潮"
+  recent_event_ids: ["M06", "M05", "M04", "M03", "M02"]
+  run_archetype: "corruption_hunt"
+  run_modifier_ids: ["MOD_GHOST_TIDE", "MOD_FRACTURED_TRUST"]
+reward_state:
+  material_reward_slots_remaining: 3
+  revealed_pending_rewards: []
+  granted_permanent_rewards:
+    - claim_id: "qa_run_20260904_clear_1"
+      type: "equipment_material"
+      id: 51003
+      name: "精炼秘银"
+      count: 2
+pending_interaction: null
+recent_run_summaries: []

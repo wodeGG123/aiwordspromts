@@ -1,0 +1,27 @@
+{
+  "operation_type": "start",
+  "expected_template_name": "新一轮事件",
+  "context_mode": "event_generation",
+  "system_brick_order": [
+    "engine.新一轮事件",
+    "world.full",
+    "dungeon.event_generation.M01",
+    "engine.final_check"
+  ],
+  "shared_files": [
+    "../../01_共享积木/世界规则_固定积木_20260904.txt",
+    "../../01_共享积木/最终自检_固定积木_20260904.txt"
+  ],
+  "runtime_position": "单独user消息，内容以#本次程序运行态输入开头",
+  "dynamic_arguments": {
+    "operationType": "start",
+    "expectedTemplateName": "新一轮事件",
+    "currentRound": 1,
+    "currentSceneId": "scene_village",
+    "completedEvents": [],
+    "forcedEventId": "M01",
+    "includedEventIds": [
+      "M01"
+    ]
+  }
+}

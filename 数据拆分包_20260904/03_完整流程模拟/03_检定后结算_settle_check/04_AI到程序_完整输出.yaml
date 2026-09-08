@@ -1,0 +1,52 @@
+event_details:
+  template_name: "结算"
+  event_id: "M01"
+  current_round: 1
+  supply_value: 100
+  corruption_value: 10
+  current_theme: "危机暂歇"
+  current_type: "主线事件结算"
+  scene_name: "艾德村庄"
+  steps:
+    - narration: "最后一股黏液被压在车轮与排水沟之间，黑纹像熄灭的炭火般逐段暗下。粮仓横梁虽然裂开，里面的人却沿着你们清出的窄道全部撤了出来。"
+    - dialogues:
+      - npc: "村长艾德"
+        speech: "你们救了他们。可这些黑纹以前从未出现过，史莱姆也从不会盯着一张井图不放。"
+    - narration: "你们从残留物里挑出一枚没有融化的粘液核心。它靠近旧井图时再次发热，边缘浮现的纹路与史莱姆朝向森林时完全相同。"
+    - dialogues:
+      - npc: "星穹法师"
+        speech: "这不是袭击的终点，只是有人留在路上的箭头。"
+      - npc: "村长艾德"
+        speech: "森林入口的猎人马克熟悉那些旧路。带上核心去找他，他也许知道是谁在驱赶这些怪物。"
+    - narration: "雨势渐弱，远处森林却传来一声不属于野兽的低鸣。村庄暂时安全，一条带着腐化气味的线索已经伸向幽暗森林。"
+  summary:
+    - summary: "获得粘液核心x1"
+    - type: "item"
+      id: 900004
+      count: 1
+  story_patch:
+    completed_event_id: "M01"
+    selected_option_id: 2
+    outcome: "success"
+    run_archetype: "corruption_hunt"
+    run_modifier_ids:
+      - "MOD_GHOST_TIDE"
+      - "MOD_FRACTURED_TRUST"
+    add_flags:
+      - "M01_SCHEME"
+      - "PLAN_H03"
+      - "PLAN_H05"
+    remove_flags: []
+    route_delta:
+      combat: 0
+      scheme: 1
+      cleanse: 0
+    npc_state_updates:
+      - npc: "村长艾德"
+        state: "trusted"
+    memory_notes:
+      - "队伍封住狭巷并保住粮仓，村长艾德愿意提供森林旧路情报"
+    unresolved_hooks_added:
+      - "驱赶史莱姆的幕后力量仍藏在幽暗森林"
+    unresolved_hooks_resolved: []
+  final_chapter: false

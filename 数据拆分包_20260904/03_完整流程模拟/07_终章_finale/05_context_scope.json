@@ -1,0 +1,11 @@
+{
+  "mode": "finale",
+  "expectedTemplateName": "终章",
+  "stage": null,
+  "includedEventIds": [],
+  "includedRoleIds": [],
+  "includedRoleNames": [],
+  "includedSceneIds": [],
+  "includedSceneNames": [],
+  "activeEventId": null
+}

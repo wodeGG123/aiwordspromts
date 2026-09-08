@@ -1,0 +1,25 @@
+{
+  "mode": "event_generation",
+  "expectedTemplateName": "新一轮事件",
+  "stage": "P1",
+  "includedEventIds": [
+    "M01"
+  ],
+  "includedRoleIds": [
+    "200000129",
+    "200000130",
+    "290000011"
+  ],
+  "includedRoleNames": [
+    "村长艾德",
+    "史莱姆",
+    "重甲守卫"
+  ],
+  "includedSceneIds": [
+    "scene_village"
+  ],
+  "includedSceneNames": [
+    "艾德村庄"
+  ],
+  "activeEventId": null
+}

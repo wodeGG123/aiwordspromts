@@ -1,0 +1,502 @@
+{
+  "bundle_id": "dungeon1.ai-interaction-dev-kit",
+  "bundle_version": "2026.09.04.1",
+  "generated_date": "2026-09-04",
+  "files": [
+    {
+      "path": "00_源包/腐化魔王危机_结构化事件定义_20260904_v2.js",
+      "bytes": 94040,
+      "sha256": "708cde5c2f93f2da88e3effae69226f1cdffa5b4c37717465da20ddc84056275"
+    },
+    {
+      "path": "00_源包/腐化魔王危机_模块化入口_20260904_v5.js",
+      "bytes": 3767,
+      "sha256": "fe69ba8d21fe0d984d3c5dd618a980110698820750a7f6b7430ac7795b05c1a3"
+    },
+    {
+      "path": "00_源包/副本运行包_腐化魔王危机_20260904_v5.js",
+      "bytes": 67063,
+      "sha256": "b189494377c66b1b8f38c6ec01e5d0dc520a1b236b099ac4dd1dffa9a5398bfe"
+    },
+    {
+      "path": "00_源包/冒险模式_通用引擎包_20260904_v5.js",
+      "bytes": 71430,
+      "sha256": "00f716b42c5bc6e51ded7553e858373784c588eea9463fb915698f825bd1638e"
+    },
+    {
+      "path": "00_源包/世界规则包_西方魔幻_20260904_v5.js",
+      "bytes": 1838,
+      "sha256": "91434ee0e59c2ceb3ffbd48e320127aee800fabee44b9f4ee362704964ac9797"
+    },
+    {
+      "path": "01_共享积木/流式输出契约_20260904.json",
+      "bytes": 1492,
+      "sha256": "784ef479f187dacc10a4eda4586c332917a3cba84ccb089a4e9c66b66650a159"
+    },
+    {
+      "path": "01_共享积木/世界规则_固定积木_20260904.txt",
+      "bytes": 1558,
+      "sha256": "a8189077506326c566ea24b2ee6e32572d0edb803393e52be24ce98821a29720"
+    },
+    {
+      "path": "01_共享积木/最终自检_固定积木_20260904.txt",
+      "bytes": 2203,
+      "sha256": "c9e896d7f35228353108c4e38159e0ddbf5e94a6c69bff442302acd7358ccb04"
+    },
+    {
+      "path": "01_共享积木/package_context_20260904.yaml",
+      "bytes": 265,
+      "sha256": "518c7786847326783cad733224db8f65331e0d77e70fdc270d9f5b7241ae249e"
+    },
+    {
+      "path": "02_按状态预切片/01_开局_start/01_引擎积木.txt",
+      "bytes": 55700,
+      "sha256": "9c1f0cbb9e636f19d93f194583ae7a8a41daa91bf34591a2cbf96ab4391d8867"
+    },
+    {
+      "path": "02_按状态预切片/01_开局_start/02_副本积木.txt",
+      "bytes": 27764,
+      "sha256": "399057a87e8d6b7d56b2096a06d2558cbb2be9d10aeb106c1676cf4d9219a0e0"
+    },
+    {
+      "path": "02_按状态预切片/01_开局_start/03_拼装清单.json",
+      "bytes": 773,
+      "sha256": "ba7118fa8daaaaac350731bf2df87de28db2fda489c08b10156e3710ae8792b1"
+    },
+    {
+      "path": "02_按状态预切片/01_开局_start/04_system_prompt_完整拼装示例.txt",
+      "bytes": 87231,
+      "sha256": "337852a4ae5aaf98a4e1e84593f9cd4ce66078aa045957c36a1a4d17a548d524"
+    },
+    {
+      "path": "02_按状态预切片/01_开局_start/README.md",
+      "bytes": 859,
+      "sha256": "7c2636c24e840e27a2e97825aedd1ab95f4a5a628f23a7cc84c65e84f722ab68"
+    },
+    {
+      "path": "02_按状态预切片/02_新一轮_next_round/01_引擎积木.txt",
+      "bytes": 55700,
+      "sha256": "9c1f0cbb9e636f19d93f194583ae7a8a41daa91bf34591a2cbf96ab4391d8867"
+    },
+    {
+      "path": "02_按状态预切片/02_新一轮_next_round/02_副本积木.txt",
+      "bytes": 29742,
+      "sha256": "4caafd4dc7195ddbc5858930084c5decd25db81a574f50a7c4d4de6c6706f829"
+    },
+    {
+      "path": "02_按状态预切片/02_新一轮_next_round/03_拼装清单.json",
+      "bytes": 852,
+      "sha256": "2dc4af8b760f52d193469f0d3c2fb0e34e189c9333bf03cb92595b7732d8742d"
+    },
+    {
+      "path": "02_按状态预切片/02_新一轮_next_round/04_system_prompt_完整拼装示例.txt",
+      "bytes": 89209,
+      "sha256": "636252643a80594c4b4482c8ca995904ee97415665fb57bf90fed6d3244f3757"
+    },
+    {
+      "path": "02_按状态预切片/02_新一轮_next_round/README.md",
+      "bytes": 876,
+      "sha256": "1351e32f95356bb02c286cbbfe30b83bbf5532467e689143237738618eb5e6a5"
+    },
+    {
+      "path": "02_按状态预切片/03_选择检定_choose/01_引擎积木.txt",
+      "bytes": 36433,
+      "sha256": "a99c10ddb5671ac9e4bcba01e2cfa75da68a2c5c65d2c8f99bb31b71f399999d"
+    },
+    {
+      "path": "02_按状态预切片/03_选择检定_choose/02_副本积木.txt",
+      "bytes": 12630,
+      "sha256": "ba57ac6d721384df0ee1f36aff45d196d3d506cb573d4eea4a87f819bc91b1ba"
+    },
+    {
+      "path": "02_按状态预切片/03_选择检定_choose/03_拼装清单.json",
+      "bytes": 606,
+      "sha256": "52f7d9c84000753c9c0c1426030bc128171090b53ba8060e019eab24de6e9bfd"
+    },
+    {
+      "path": "02_按状态预切片/03_选择检定_choose/04_system_prompt_完整拼装示例.txt",
+      "bytes": 52830,
+      "sha256": "cc0a31015a0993be4423260a3de4773f4f734a0941779579e077f145ade6dc70"
+    },
+    {
+      "path": "02_按状态预切片/03_选择检定_choose/README.md",
+      "bytes": 867,
+      "sha256": "4e1dad04f75c49a474f662187e49342ae2279a28c59369354f9ef5bdc6f5f0c6"
+    },
+    {
+      "path": "02_按状态预切片/04_检定后结算_settle_check/01_引擎积木.txt",
+      "bytes": 50736,
+      "sha256": "b5d668cf255e735ebd985cc7cb80eca65d8064faadd8b7c392859e8722e7566d"
+    },
+    {
+      "path": "02_按状态预切片/04_检定后结算_settle_check/02_副本积木.txt",
+      "bytes": 16341,
+      "sha256": "0fc2cd822deae0f655c327206c8021ced8d346bdaf9792745d3b06c7e410d361"
+    },
+    {
+      "path": "02_按状态预切片/04_检定后结算_settle_check/03_拼装清单.json",
+      "bytes": 618,
+      "sha256": "67588425985893b0c7e6e20980551479d514751fd7ba08b0e34e92b42b8baed2"
+    },
+    {
+      "path": "02_按状态预切片/04_检定后结算_settle_check/04_system_prompt_完整拼装示例.txt",
+      "bytes": 70844,
+      "sha256": "8c15cb2a4722a65cc42634d829ee8a9b6b09ecd49a27f53485ad43ac5276b990"
+    },
+    {
+      "path": "02_按状态预切片/04_检定后结算_settle_check/README.md",
+      "bytes": 861,
+      "sha256": "a3a7b1e858b00afc9263a3c5008ab5b64738997a81c6401e108c7d8b62700125"
+    },
+    {
+      "path": "02_按状态预切片/05_选择战斗_choose/01_引擎积木.txt",
+      "bytes": 32583,
+      "sha256": "7975f64d00b07fd8d642afe7474627b2c44288f6c7124aa46276e39de2da0133"
+    },
+    {
+      "path": "02_按状态预切片/05_选择战斗_choose/02_副本积木.txt",
+      "bytes": 11510,
+      "sha256": "3cc0d9fe57f33c0879668f76a96d0b5fa017ce1e191644a927b353bf81db6a9c"
+    },
+    {
+      "path": "02_按状态预切片/05_选择战斗_choose/03_拼装清单.json",
+      "bytes": 624,
+      "sha256": "2b3f80c0cdbb998087ba9d353a95dd66bcea94182d094e801671388675535fb5"
+    },
+    {
+      "path": "02_按状态预切片/05_选择战斗_choose/04_system_prompt_完整拼装示例.txt",
+      "bytes": 47860,
+      "sha256": "f08e02fb96b211963a965164e5e896b78a8e79ae0607bf21483f2a68bd7cf6b7"
+    },
+    {
+      "path": "02_按状态预切片/05_选择战斗_choose/README.md",
+      "bytes": 867,
+      "sha256": "8b701d1ccd91717c309c702e76f7faacc7f4476191d055a721bc0405633f9c7c"
+    },
+    {
+      "path": "02_按状态预切片/06_战斗后结算_battle_result/01_引擎积木.txt",
+      "bytes": 50736,
+      "sha256": "b5d668cf255e735ebd985cc7cb80eca65d8064faadd8b7c392859e8722e7566d"
+    },
+    {
+      "path": "02_按状态预切片/06_战斗后结算_battle_result/02_副本积木.txt",
+      "bytes": 17604,
+      "sha256": "7a3ea775d8ec2dcea7d06fb0f064fc1db07a798f24dcc55518a36d2b4b39ca63"
+    },
+    {
+      "path": "02_按状态预切片/06_战斗后结算_battle_result/03_拼装清单.json",
+      "bytes": 620,
+      "sha256": "53bad8249d01710c065849df7899feec4e7fe8766d9083c19e9eed28287de9e1"
+    },
+    {
+      "path": "02_按状态预切片/06_战斗后结算_battle_result/04_system_prompt_完整拼装示例.txt",
+      "bytes": 72107,
+      "sha256": "74d10b76dfa01a2caf0fed9b4f784ceb915d7cfcb02861ca6c2a6c2bfae012cf"
+    },
+    {
+      "path": "02_按状态预切片/06_战斗后结算_battle_result/README.md",
+      "bytes": 873,
+      "sha256": "939139e4782e37fdb52d02806f583b8f328209f63088f7e45defdd009275e589"
+    },
+    {
+      "path": "02_按状态预切片/07_选择直接结算_choose_direct/01_引擎积木.txt",
+      "bytes": 50736,
+      "sha256": "b5d668cf255e735ebd985cc7cb80eca65d8064faadd8b7c392859e8722e7566d"
+    },
+    {
+      "path": "02_按状态预切片/07_选择直接结算_choose_direct/02_副本积木.txt",
+      "bytes": 16643,
+      "sha256": "ef8c5ef65e2dd77c1a963033c98778dcce5539f955e6e4e989a3207069f0c62d"
+    },
+    {
+      "path": "02_按状态预切片/07_选择直接结算_choose_direct/03_拼装清单.json",
+      "bytes": 606,
+      "sha256": "00f13adc8842e55bdc1e1ea4f647c2b7953d62dc8c0ced50d6148519f056782a"
+    },
+    {
+      "path": "02_按状态预切片/07_选择直接结算_choose_direct/04_system_prompt_完整拼装示例.txt",
+      "bytes": 71146,
+      "sha256": "b665bbe9ce35459c18741c07906f918cffff7248369f3fcb78b547fddc19bc49"
+    },
+    {
+      "path": "02_按状态预切片/07_选择直接结算_choose_direct/README.md",
+      "bytes": 856,
+      "sha256": "e3feab58b99d9b2038f021ecc11eff2af48ce9e7c34daa7f6fe73a389a22ed89"
+    },
+    {
+      "path": "02_按状态预切片/08_终章_finale/01_引擎积木.txt",
+      "bytes": 31627,
+      "sha256": "4fe7ed0729017581e5682399060af2ca6e5ce8c5c10889ccab643725cb88d90d"
+    },
+    {
+      "path": "02_按状态预切片/08_终章_finale/02_副本积木.txt",
+      "bytes": 7466,
+      "sha256": "78e160d6c6a967839fbcbcf93fc0653d75f82de0c36b4c8f5d89b6562007884d"
+    },
+    {
+      "path": "02_按状态预切片/08_终章_finale/03_拼装清单.json",
+      "bytes": 572,
+      "sha256": "64493252584627844c9b8f0f7f9d63c48e50f88ff5514dcb4029714f9047fb0a"
+    },
+    {
+      "path": "02_按状态预切片/08_终章_finale/04_system_prompt_完整拼装示例.txt",
+      "bytes": 42860,
+      "sha256": "82c2b2bdea7ee6c98005418ca8588705a10d2149b904664aed4ec3bc898e6d5b"
+    },
+    {
+      "path": "02_按状态预切片/08_终章_finale/README.md",
+      "bytes": 885,
+      "sha256": "a7c19e263cdf2285ddc6e018225a3227553ecd0bf7c44e84d027037c00fda058"
+    },
+    {
+      "path": "03_完整流程模拟/00_流程总览.md",
+      "bytes": 908,
+      "sha256": "54bf710e0fe7e4cc53c5da541798776e6f356e929663ce1db8485984f9eac708"
+    },
+    {
+      "path": "03_完整流程模拟/01_开局_start/01_system_prompt_完整.txt",
+      "bytes": 87231,
+      "sha256": "337852a4ae5aaf98a4e1e84593f9cd4ce66078aa045957c36a1a4d17a548d524"
+    },
+    {
+      "path": "03_完整流程模拟/01_开局_start/02_user_prompt_完整.txt",
+      "bytes": 3322,
+      "sha256": "d15cc5366dba8d69ff91d2c0436867b5966c6d89a21cff58398d88d8566370c3"
+    },
+    {
+      "path": "03_完整流程模拟/01_开局_start/03_程序到AI_完整拼接prompt.txt",
+      "bytes": 90555,
+      "sha256": "cbb327fdf8ffc072a5233d60b2759973c50618e39105a605e95cc9cdb6a9d5fc"
+    },
+    {
+      "path": "03_完整流程模拟/01_开局_start/04_AI到程序_完整输出.yaml",
+      "bytes": 2190,
+      "sha256": "b2dc7efd208df07cd7d4dce63be9fe0856bd90b3e16bc1ecdab018f98937815a"
+    },
+    {
+      "path": "03_完整流程模拟/01_开局_start/05_context_scope.json",
+      "bytes": 422,
+      "sha256": "0d621f1e24c9c0295c1dc8d1d061f7bd5936199802a79b11cca7db0f4d7bac1f"
+    },
+    {
+      "path": "03_完整流程模拟/01_开局_start/06_程序处理结果.md",
+      "bytes": 181,
+      "sha256": "749d315011f25adf98ee20c0a0d113b8cb2c3da7fd3041ceca2642644daa3816"
+    },
+    {
+      "path": "03_完整流程模拟/02_选择检定_choose/01_system_prompt_完整.txt",
+      "bytes": 52830,
+      "sha256": "cc0a31015a0993be4423260a3de4773f4f734a0941779579e077f145ade6dc70"
+    },
+    {
+      "path": "03_完整流程模拟/02_选择检定_choose/02_user_prompt_完整.txt",
+      "bytes": 6228,
+      "sha256": "ee717e8fc1b34aa5d7684baaa8ddad94e3062b58b94d948f2471e6ca57573f17"
+    },
+    {
+      "path": "03_完整流程模拟/02_选择检定_choose/03_程序到AI_完整拼接prompt.txt",
+      "bytes": 59060,
+      "sha256": "aa954f3a080089f4cb467f6b79520a21f5c951b02af18a31bd575081361fded0"
+    },
+    {
+      "path": "03_完整流程模拟/02_选择检定_choose/04_AI到程序_完整输出.yaml",
+      "bytes": 492,
+      "sha256": "653bdf03e2627546514dc2a20c35cfbd2f053ac31a1a48e3d245a606f0de3146"
+    },
+    {
+      "path": "03_完整流程模拟/02_选择检定_choose/05_context_scope.json",
+      "bytes": 253,
+      "sha256": "3244c683043920dc7994706c9b8400788f40a05b1840814d72f7ecbbb0c7cf62"
+    },
+    {
+      "path": "03_完整流程模拟/02_选择检定_choose/06_程序处理结果.md",
+      "bytes": 197,
+      "sha256": "526deff52f7de30dff35a8ede4026c0463d7968263d0b8b3bd9100128d97c488"
+    },
+    {
+      "path": "03_完整流程模拟/03_检定后结算_settle_check/01_system_prompt_完整.txt",
+      "bytes": 70844,
+      "sha256": "8c15cb2a4722a65cc42634d829ee8a9b6b09ecd49a27f53485ad43ac5276b990"
+    },
+    {
+      "path": "03_完整流程模拟/03_检定后结算_settle_check/02_user_prompt_完整.txt",
+      "bytes": 6554,
+      "sha256": "d331eba112c3644784213216439a845c0a5aa9dc310e6b32685fe91b61e495e1"
+    },
+    {
+      "path": "03_完整流程模拟/03_检定后结算_settle_check/03_程序到AI_完整拼接prompt.txt",
+      "bytes": 77400,
+      "sha256": "823fb5d738ba4b250e3acbf51cf78510f5ac7cec30572f2568c3f77d7e2afd80"
+    },
+    {
+      "path": "03_完整流程模拟/03_检定后结算_settle_check/04_AI到程序_完整输出.yaml",
+      "bytes": 2048,
+      "sha256": "7bb080acc11159e185975dd4be45d57b6d3fce3060dab627479f8b8532c16fab"
+    },
+    {
+      "path": "03_完整流程模拟/03_检定后结算_settle_check/05_context_scope.json",
+      "bytes": 253,
+      "sha256": "cda459a780a126c9b3bdb8f018b882ec636023e876dfae7a8c76fb3ffc468577"
+    },
+    {
+      "path": "03_完整流程模拟/03_检定后结算_settle_check/06_程序处理结果.md",
+      "bytes": 202,
+      "sha256": "75a47d112f808c4952b4c4fd7c4d1e6472fa587ecb93c6118f1b464793018049"
+    },
+    {
+      "path": "03_完整流程模拟/04_新一轮_next_round/01_system_prompt_完整.txt",
+      "bytes": 89209,
+      "sha256": "636252643a80594c4b4482c8ca995904ee97415665fb57bf90fed6d3244f3757"
+    },
+    {
+      "path": "03_完整流程模拟/04_新一轮_next_round/02_user_prompt_完整.txt",
+      "bytes": 4442,
+      "sha256": "9db7ee899ad7db3242e4b1bde5ceba38f0fc572b51aae8167c312088d0fc0890"
+    },
+    {
+      "path": "03_完整流程模拟/04_新一轮_next_round/03_程序到AI_完整拼接prompt.txt",
+      "bytes": 93653,
+      "sha256": "939883a63378ba7737f1cab6e44845f21bdc7645c8ba13867fc69f35d9d9208a"
+    },
+    {
+      "path": "03_完整流程模拟/04_新一轮_next_round/04_AI到程序_完整输出.yaml",
+      "bytes": 2533,
+      "sha256": "6321a552b1aa1193bbcfa2e66ad60e147167d421ca5bd5058765347328e66d28"
+    },
+    {
+      "path": "03_完整流程模拟/04_新一轮_next_round/05_context_scope.json",
+      "bytes": 544,
+      "sha256": "aca0993e974e8d29b5de947221e3faebf75d6d48bd76e9008322c05891520bd2"
+    },
+    {
+      "path": "03_完整流程模拟/04_新一轮_next_round/06_程序处理结果.md",
+      "bytes": 335,
+      "sha256": "ea9801395afea70c9d84f0b1e3afd66e2c04bfa1f187947bdc54a34097e581d4"
+    },
+    {
+      "path": "03_完整流程模拟/05_选择战斗_choose/01_system_prompt_完整.txt",
+      "bytes": 47860,
+      "sha256": "f08e02fb96b211963a965164e5e896b78a8e79ae0607bf21483f2a68bd7cf6b7"
+    },
+    {
+      "path": "03_完整流程模拟/05_选择战斗_choose/02_user_prompt_完整.txt",
+      "bytes": 7543,
+      "sha256": "11c5ca9ca40882457cbbb1f4f15f32e6c8c8ff5f6efc1b940d49e165fd6931ce"
+    },
+    {
+      "path": "03_完整流程模拟/05_选择战斗_choose/03_程序到AI_完整拼接prompt.txt",
+      "bytes": 55405,
+      "sha256": "6735296caad0d52e4f0c341dc33e34d1058046024a5d0edc2026d2fca126a81d"
+    },
+    {
+      "path": "03_完整流程模拟/05_选择战斗_choose/04_AI到程序_完整输出.yaml",
+      "bytes": 1303,
+      "sha256": "d5f7ecec1e7138e7f6ed52da449c0e04e96981e2b5c8ac93b11260c84454fdcd"
+    },
+    {
+      "path": "03_完整流程模拟/05_选择战斗_choose/05_context_scope.json",
+      "bytes": 259,
+      "sha256": "4b5a20b514462973fdc7ba40b4944780655c17474fcbe269aeafe7ae63158836"
+    },
+    {
+      "path": "03_完整流程模拟/05_选择战斗_choose/06_程序处理结果.md",
+      "bytes": 201,
+      "sha256": "9b963fd302b5b7935916714e45e323cdab0f545e29ef6dfd96ffd9ced85d2b3f"
+    },
+    {
+      "path": "03_完整流程模拟/06_战斗后结算_battle_result/01_system_prompt_完整.txt",
+      "bytes": 72107,
+      "sha256": "74d10b76dfa01a2caf0fed9b4f784ceb915d7cfcb02861ca6c2a6c2bfae012cf"
+    },
+    {
+      "path": "03_完整流程模拟/06_战斗后结算_battle_result/02_user_prompt_完整.txt",
+      "bytes": 8855,
+      "sha256": "a702ad489cfff1a180fc07bf8b987cb783309775a475c666e770c111f978181c"
+    },
+    {
+      "path": "03_完整流程模拟/06_战斗后结算_battle_result/03_程序到AI_完整拼接prompt.txt",
+      "bytes": 80964,
+      "sha256": "312f46d0f3bebe59c6b5e02f3f821d3e0f7a473f28b0f6625d8533ea02c7f4ae"
+    },
+    {
+      "path": "03_完整流程模拟/06_战斗后结算_battle_result/04_AI到程序_完整输出.yaml",
+      "bytes": 1922,
+      "sha256": "546ac590150fe8b9265f840e616d4407d6eb08a7137e48cb5592dbf4107be1c1"
+    },
+    {
+      "path": "03_完整流程模拟/06_战斗后结算_battle_result/05_context_scope.json",
+      "bytes": 253,
+      "sha256": "ede606182c66de5dc9acdd7842b49f97aba3d15ae826d0f6e938b8d3e28bf4f7"
+    },
+    {
+      "path": "03_完整流程模拟/06_战斗后结算_battle_result/06_程序处理结果.md",
+      "bytes": 220,
+      "sha256": "3b588887f1c3ee698e6bd8cfd67ab39d3a62ef07ec159b310c3d313131cfd932"
+    },
+    {
+      "path": "03_完整流程模拟/07_终章_finale/01_system_prompt_完整.txt",
+      "bytes": 42860,
+      "sha256": "82c2b2bdea7ee6c98005418ca8588705a10d2149b904664aed4ec3bc898e6d5b"
+    },
+    {
+      "path": "03_完整流程模拟/07_终章_finale/02_user_prompt_完整.txt",
+      "bytes": 4517,
+      "sha256": "698cc9e072fb3fa7f4524a86c98185fcd5da4dd86722ce2e655e53764524f046"
+    },
+    {
+      "path": "03_完整流程模拟/07_终章_finale/03_程序到AI_完整拼接prompt.txt",
+      "bytes": 47379,
+      "sha256": "b37d3be2631c5cdcdf378dd8b8641643716403505b40ff510b0fb2d64c00a2db"
+    },
+    {
+      "path": "03_完整流程模拟/07_终章_finale/04_AI到程序_完整输出.yaml",
+      "bytes": 4114,
+      "sha256": "6d6b551c15d4dbb537c7d0a659523ff0f52641def64462bc01fae120a3bb9d78"
+    },
+    {
+      "path": "03_完整流程模拟/07_终章_finale/05_context_scope.json",
+      "bytes": 233,
+      "sha256": "f6028866daf56ad5bbc3b5f7179533ccb9e2447baa95217f77b4222760a3995c"
+    },
+    {
+      "path": "03_完整流程模拟/07_终章_finale/06_程序处理结果.md",
+      "bytes": 205,
+      "sha256": "5a03e4bf5dd60b638d4ad27b426914a277d9fc398eb9fc32e73e44322bcb5060"
+    },
+    {
+      "path": "03_完整流程模拟/流程索引_20260904.json",
+      "bytes": 1508,
+      "sha256": "bb0c9c261e496f334f531259cce11ce5669051b987eb0de83e694d712f8433ca"
+    },
+    {
+      "path": "04_验证工具/验证完整模拟_20260904.mjs",
+      "bytes": 6011,
+      "sha256": "57121af1e738d3c8be925590484d956ff4c7daea2a4ee6774d07228105aa1492"
+    },
+    {
+      "path": "04_验证工具/adventure_yaml_stream_parser.mjs",
+      "bytes": 45540,
+      "sha256": "1ca862197507889af54f64fc41d642dc198afc3ac5d6fc9ff8075e7c06c28d60"
+    },
+    {
+      "path": "腐化魔王危机_程序与AI动态交互协议_20260904.html",
+      "bytes": 140230,
+      "sha256": "3304be5286a92afa5a516f24e8aaf43dbede6d8e11173ad5a8db76781e4d63f4"
+    },
+    {
+      "path": "腐化魔王危机_预切片积木入口_20260904.mjs",
+      "bytes": 2956,
+      "sha256": "3b6f30ad5845de20b43469a3c1134b682c2d1a1d8e445daec2ee1618fd664aa1"
+    },
+    {
+      "path": "状态拼装索引_20260904.json",
+      "bytes": 1805,
+      "sha256": "0354a88145599790fbedd2e31e352c861988600594e3aeb00c5fbf2b7af62bea"
+    },
+    {
+      "path": "README_研发先看_20260904.md",
+      "bytes": 1050,
+      "sha256": "36d165f0868311b0013c80a206a3cb30d4f6a2fcdf59388dd5dea622515e52a5"
+    }
+  ]
+}

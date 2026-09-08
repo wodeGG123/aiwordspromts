@@ -1,0 +1,20 @@
+{
+  "operation_type": "finale",
+  "expected_template_name": "终章",
+  "context_mode": "finale",
+  "system_brick_order": [
+    "engine.终章",
+    "world.full",
+    "dungeon.finale.scheduled",
+    "engine.final_check"
+  ],
+  "shared_files": [
+    "../../01_共享积木/世界规则_固定积木_20260904.txt",
+    "../../01_共享积木/最终自检_固定积木_20260904.txt"
+  ],
+  "runtime_position": "单独user消息，内容以#本次程序运行态输入开头",
+  "dynamic_arguments": {
+    "operationType": "finale",
+    "expectedTemplateName": "终章"
+  }
+}

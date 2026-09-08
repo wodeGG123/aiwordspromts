@@ -1,0 +1,1357 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>腐化魔王危机 · 模块化提示词架构与程序协议</title>
+  <meta name="description" content="AI卡牌手游冒险模式“腐化魔王危机”的模块化提示词装配、运行态输入、状态机、剧情记忆与结算协议。">
+  <style>
+    :root {
+      --bg: #f5f3ee;
+      --paper: #fffdf8;
+      --ink: #20231f;
+      --muted: #686e66;
+      --line: #d9ddd4;
+      --green: #1f6048;
+      --green-2: #2f7a5c;
+      --green-soft: #e5f0e9;
+      --gold: #9a681d;
+      --gold-soft: #f7ecd4;
+      --red: #a33c32;
+      --red-soft: #f8e7e4;
+      --blue: #315f85;
+      --blue-soft: #e7eff6;
+      --code: #17211d;
+      --shadow: 0 16px 45px rgba(36, 46, 39, .09);
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      color: var(--ink);
+      background:
+        radial-gradient(circle at 4% 4%, rgba(47,122,92,.10), transparent 24rem),
+        radial-gradient(circle at 95% 12%, rgba(154,104,29,.10), transparent 26rem),
+        var(--bg);
+      font: 15px/1.72 "Microsoft YaHei", "PingFang SC", system-ui, sans-serif;
+    }
+    a { color: inherit; }
+    .layout { display: grid; grid-template-columns: 268px minmax(0, 1fr); min-height: 100vh; }
+    aside {
+      position: sticky; top: 0; height: 100vh; overflow: auto;
+      padding: 30px 22px; color: #eef7f1;
+      background: linear-gradient(180deg, #143d30 0%, #102d25 100%);
+      border-right: 1px solid rgba(255,255,255,.08);
+    }
+    .brand { margin-bottom: 28px; }
+    .brand-mark {
+      width: 38px; height: 38px; display: grid; place-items: center;
+      border: 1px solid rgba(255,255,255,.32); border-radius: 12px;
+      background: rgba(255,255,255,.08); font-weight: 800; letter-spacing: .08em;
+    }
+    .brand h1 { margin: 13px 0 3px; font: 700 18px/1.35 Georgia, "Microsoft YaHei", serif; }
+    .brand p { margin: 0; color: #afd0bf; font-size: 12px; }
+    nav a {
+      display: block; padding: 8px 10px; margin: 3px 0; border-radius: 8px;
+      color: #c9ddd2; text-decoration: none; font-size: 13px;
+    }
+    nav a:hover, nav a.active { color: white; background: rgba(255,255,255,.10); }
+    .side-note { margin-top: 26px; padding: 13px; border: 1px solid rgba(255,255,255,.12); border-radius: 10px; color: #bed2c7; font-size: 12px; }
+    main { width: min(1180px, 100%); padding: 52px 56px 90px; }
+    .hero { padding: 38px 42px; border: 1px solid #d7ddd5; border-radius: 22px; background: rgba(255,253,248,.93); box-shadow: var(--shadow); }
+    .eyebrow { margin: 0 0 10px; color: var(--green); font-size: 12px; font-weight: 800; letter-spacing: .14em; text-transform: uppercase; }
+    .hero h2 { margin: 0; max-width: 820px; font: 700 clamp(30px, 4vw, 48px)/1.18 Georgia, "Microsoft YaHei", serif; letter-spacing: -.03em; }
+    .hero .lead { max-width: 860px; margin: 20px 0 0; color: #535b53; font-size: 17px; }
+    .meta { display: flex; flex-wrap: wrap; gap: 9px; margin-top: 24px; }
+    .pill { display: inline-flex; align-items: center; gap: 6px; padding: 6px 10px; border-radius: 999px; background: var(--green-soft); color: var(--green); font-size: 12px; font-weight: 700; }
+    section { scroll-margin-top: 22px; margin-top: 50px; }
+    section > h2 { margin: 0 0 10px; font: 700 28px/1.3 Georgia, "Microsoft YaHei", serif; }
+    section > p:first-of-type { color: var(--muted); }
+    .cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; margin-top: 20px; }
+    .card { padding: 20px; border: 1px solid var(--line); border-radius: 15px; background: var(--paper); }
+    .card b { display: block; margin-bottom: 5px; color: var(--green); font-size: 15px; }
+    .card p { margin: 0; color: var(--muted); font-size: 13px; }
+    .callout { margin: 20px 0; padding: 16px 18px; border-left: 4px solid var(--green); border-radius: 8px; background: var(--green-soft); }
+    .callout.warn { border-color: var(--gold); background: var(--gold-soft); }
+    .callout.danger { border-color: var(--red); background: var(--red-soft); }
+    .callout strong { display: block; margin-bottom: 3px; }
+    .flow { display: flex; flex-wrap: wrap; align-items: stretch; gap: 9px; margin-top: 22px; }
+    .flow .node { flex: 1 1 130px; min-width: 130px; padding: 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--paper); text-align: center; }
+    .flow .node b { display: block; color: var(--green); }
+    .flow .arrow { align-self: center; color: var(--gold); font-weight: 900; }
+    .code-wrap { position: relative; margin: 18px 0; }
+    pre { margin: 0; overflow: auto; padding: 21px; border-radius: 14px; color: #deeee5; background: var(--code); box-shadow: inset 0 0 0 1px rgba(255,255,255,.06); font: 12.5px/1.62 Consolas, "SFMono-Regular", monospace; tab-size: 2; }
+    .copy { position: absolute; top: 10px; right: 10px; padding: 6px 9px; border: 1px solid rgba(255,255,255,.18); border-radius: 8px; color: #e5eee9; background: rgba(255,255,255,.08); cursor: pointer; font-size: 12px; }
+    .copy:hover { background: rgba(255,255,255,.16); }
+    code { padding: .13em .34em; border-radius: 5px; background: #eef1eb; font: .9em Consolas, monospace; }
+    pre code { padding: 0; background: transparent; font-size: inherit; }
+    .table-shell { overflow: auto; margin-top: 18px; border: 1px solid var(--line); border-radius: 14px; background: var(--paper); }
+    table { width: 100%; border-collapse: collapse; min-width: 850px; }
+    th, td { padding: 12px 13px; border-bottom: 1px solid #e6e8e2; text-align: left; vertical-align: top; }
+    th { position: sticky; top: 0; z-index: 1; color: #f5fbf7; background: var(--green); font-size: 12px; letter-spacing: .03em; }
+    td { font-size: 13px; }
+    tr:last-child td { border-bottom: 0; }
+    tbody tr:hover { background: #faf8f1; }
+    .req, .cond, .opt, .deprecated { display: inline-block; padding: 2px 7px; border-radius: 999px; font-size: 11px; font-weight: 800; white-space: nowrap; }
+    .req { color: #7e2c25; background: var(--red-soft); }
+    .cond { color: #775017; background: var(--gold-soft); }
+    .opt { color: #28516f; background: var(--blue-soft); }
+    .deprecated { color: #6f6761; background: #eeeae5; }
+    .search { width: 100%; margin: 10px 0 2px; padding: 11px 13px; border: 1px solid #cfd5cc; border-radius: 10px; background: white; font: inherit; outline: none; }
+    .search:focus { border-color: var(--green-2); box-shadow: 0 0 0 3px rgba(47,122,92,.12); }
+    details { margin: 12px 0; border: 1px solid var(--line); border-radius: 12px; background: var(--paper); }
+    summary { cursor: pointer; padding: 14px 17px; color: var(--green); font-weight: 800; }
+    details > div { padding: 0 17px 17px; }
+    .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+    .checklist { list-style: none; padding: 0; }
+    .checklist li { position: relative; padding: 7px 0 7px 28px; }
+    .checklist li::before { content: "✓"; position: absolute; left: 0; color: var(--green-2); font-weight: 900; }
+    footer { margin-top: 60px; padding-top: 20px; border-top: 1px solid var(--line); color: var(--muted); font-size: 12px; }
+    @media (max-width: 900px) {
+      .layout { display: block; }
+      aside { position: static; height: auto; padding: 20px; }
+      nav { display: flex; overflow: auto; gap: 5px; }
+      nav a { flex: 0 0 auto; }
+      .side-note { display: none; }
+      main { padding: 30px 18px 60px; }
+      .hero { padding: 28px 24px; }
+      .cards, .two-col { grid-template-columns: 1fr; }
+      .flow .arrow { display: none; }
+    }
+    @media print {
+      body { background: white; }
+      .layout { display: block; }
+      aside, .copy, .search { display: none !important; }
+      main { width: 100%; padding: 0; }
+      .hero, .card, .table-shell, details { box-shadow: none; break-inside: avoid; }
+      section { break-before: auto; }
+      th { color: black; background: #e7eee9; }
+    }
+  </style>
+</head>
+<body>
+  <div class="layout">
+    <aside>
+      <div class="brand">
+        <div class="brand-mark">AI</div>
+        <h1>腐化魔王危机模块化协议</h1>
+        <p>结构化事件与前端直连语义分片版 · 2026-08-26 v8</p>
+      </div>
+      <nav id="nav">
+        <a href="#overview">设计目标</a>
+        <a href="#architecture">包架构与装配</a>
+        <a href="#flow">状态机流程</a>
+        <a href="#streaming">前端直连流式展示</a>
+        <a href="#payload">完整输入示例</a>
+        <a href="#fields">字段字典</a>
+        <a href="#enums">枚举与值域</a>
+        <a href="#operations">操作枚举</a>
+        <a href="#checks">属性与检定</a>
+        <a href="#consequences">事件链与失败</a>
+        <a href="#memory">上下文优化与剧情记忆</a>
+        <a href="#relics">圣物</a>
+        <a href="#gold">金币</a>
+        <a href="#diamond">钻石</a>
+        <a href="#resource-names">永久资源名称</a>
+        <a href="#output-fields">AI输出字段</a>
+        <a href="#response">AI状态回传</a>
+        <a href="#migration">旧字段迁移</a>
+        <a href="#validation">程序校验</a>
+      </nav>
+      <div class="side-note">本文档同时规定三个提示词包如何装配、版本固定，以及程序每次请求AI时发送和回写的数据。</div>
+    </aside>
+
+    <main>
+      <header class="hero">
+        <p class="eyebrow">Adventure Runtime Contract</p>
+        <h2>模块化提示词架构、输入协议与状态机</h2>
+        <p class="lead">通用引擎、可复用世界规则和合并资产切片后的副本运行内容被拆成三个可独立版本化的包；程序在副本之后追加引擎维护的最终自检，再追加本次运行态YAML。AI继续承担剧情、受控调度、检定、转折与分级失败结算，程序负责包兼容、绝对状态、战斗结果、账号资产、幂等和原子提交。</p>
+        <div class="meta">
+          <span class="pill">三种上下文模式</span>
+          <span class="pill">五种输出模板不变</span>
+          <span class="pill">轮数/阶段硬过滤</span>
+          <span class="pill">当前事件轻量执行</span>
+          <span class="pill">剧情流式展示</span>
+          <span class="pill">圣物持有即生效</span>
+          <span class="pill">金币与钻石受控提案</span>
+          <span class="pill">最多4名敌人</span>
+          <span class="pill">失败可带后果推进</span>
+        </div>
+      </header>
+
+      <section id="overview">
+        <h2>设计目标</h2>
+        <p>每次调用仍把玩家状态YAML当作完整权威快照，但静态提示词按状态机粗粒度装配：生成事件时装载当前轮数/阶段候选，执行战斗、检定或结算时只装载当前事件。AI不需要收到整局剧情原文，也不能用旧聊天内容覆盖本次输入。</p>
+        <div class="cards">
+          <article class="card"><b>程序装配并保存</b><p>固定引擎、世界规则和副本运行包版本及哈希，再保存回合、资源、队伍、道具、圣物、货币、剧情状态、奖励与请求缓存。</p></article>
+          <article class="card"><b>AI负责理解与裁决</b><p>在副本包边界内选择事件、生成剧情和选项，并让角色真实属性、职业、种族、性格与背景影响检定。</p></article>
+          <article class="card"><b>状态可恢复</b><p>断线、重试、上下文裁剪或模型切换后，只要重新发送结构化状态即可继续。</p></article>
+        </div>
+        <div class="callout"><strong>权威原则</strong>同一事实同时出现在当前输入、旧输出和聊天历史时，始终以当前输入为准。</div>
+      </section>
+
+      <section id="ready-bricks">
+        <h2>研发直接使用的预切片积木</h2>
+        <div class="callout danger"><strong>不再由业务程序切字符串</strong>生产代码只调用<code>腐化魔王危机_预切片积木入口_20260904.mjs</code>中的<code>prepareAiMessages</code>。它返回四块有序system积木、完整systemPrompt、完整userPrompt和contextScope；业务层不得用标题、正则或字符位置自行裁剪原始提示词。</div>
+        <div class="table-shell"><table><thead><tr><th>operation</th><th>expected模板</th><th>上下文</th><th>目录</th></tr></thead><tbody>
+          <tr><td>start</td><td>新一轮事件</td><td>event_generation</td><td>02_按状态预切片/01_开局_start</td></tr>
+          <tr><td>next_round</td><td>新一轮事件</td><td>event_generation</td><td>02_按状态预切片/02_新一轮_next_round</td></tr>
+          <tr><td>choose</td><td>检定</td><td>active_event</td><td>02_按状态预切片/03_选择检定_choose</td></tr>
+          <tr><td>settle_check</td><td>结算</td><td>active_event</td><td>02_按状态预切片/04_检定后结算_settle_check</td></tr>
+          <tr><td>choose</td><td>战斗事件</td><td>active_event</td><td>02_按状态预切片/05_选择战斗_choose</td></tr>
+          <tr><td>battle_result</td><td>结算</td><td>active_event</td><td>02_按状态预切片/06_战斗后结算_battle_result</td></tr>
+          <tr><td>choose</td><td>结算</td><td>active_event</td><td>02_按状态预切片/07_选择直接结算_choose_direct</td></tr>
+          <tr><td>finale</td><td>终章</td><td>finale</td><td>02_按状态预切片/08_终章_finale</td></tr>
+        </tbody></table></div>
+        <h3>每次API请求实际发送什么</h3>
+        <ol><li><b>system消息：</b>严格按“模板专属引擎 → 完整世界规则 → 当前副本上下文 → 最终自检”拼接。</li><li><b>user消息：</b>只发送<code>#本次程序运行态输入</code>和本次完整runtime YAML。</li><li><b>assistant响应：</b>一份无JSON包装的连续YAML正文；禁止Markdown、解释或第二份YAML。</li></ol>
+        <div class="callout"><strong>动态不等于未知</strong>动态的只有runtime值、候选ID和activeEventId。哪一种引擎模板、哪一种副本上下文、字段条件和拼装顺序都由operation矩阵固定。完整可运行例子位于<code>03_完整流程模拟</code>。</div>
+        <h3>event_output唯一表示法</h3>
+        <p><code>pending_interaction.event_output</code>固定为上一份已校验“新一轮事件”的完整解析对象，必须包含根层<code>event_details</code>及全部steps/options。它不是字符串、不是摘要，也不能写占位文字。active_event请求依靠它保持玩家看到的选项、角色和场景逐字一致。</p>
+        <h3>resolution_output唯一表示法</h3>
+        <p><code>pending_interaction.resolution_output</code>只在<code>settle_check</code>与<code>battle_result</code>请求中存在，值分别是上一份已经通过校验的完整“检定”或“战斗事件”解析对象，并保留根层<code>event_details</code>。它不能是result字符串、敌人列表摘录或自然语言摘要。<code>start</code>、<code>next_round</code>、<code>choose</code>和<code>finale</code>不得伪造该字段。</p>
+        <h3>pending.phase在请求时的精确定义</h3>
+        <ul><li>start / next_round：pending为null。</li><li>choose：请求发出时为awaiting_choice。</li><li>检定响应被接受后：程序缓存check_result并改为awaiting_settlement_commit，再发送settle_check。</li><li>战斗配置响应被接受后：改为awaiting_battle_result；战斗系统产生结果后改为awaiting_settlement_commit，再发送battle_result。</li><li>直接结算choose：请求发出时仍是awaiting_choice；AI结算返回后在CAS期间内部转为awaiting_settlement_commit。</li><li>结算提交成功：pending清空。</li></ul>
+      </section>
+
+
+
+      <section id="architecture">
+        <h2>包架构与装配</h2>
+        <p>服务器的完整角色与场景资料库不直接发送给AI。发布副本时按白名单编译资产切片并写入副本运行包；世界规则包只保留同一世界各副本共用的稳定规律。</p>
+        <div class="flow" aria-label="提示词装配顺序">
+          <div class="node"><b>① 当前模板引擎片段</b>通用核心＋本次唯一模板</div><div class="arrow">＋</div>
+          <div class="node"><b>② 完整世界规则</b>体积较小，始终装载</div><div class="arrow">＋</div>
+          <div class="node"><b>③ 本次副本上下文</b>阶段候选或当前事件</div><div class="arrow">＋</div>
+          <div class="node"><b>④ 通用引擎最终自检</b>装配时置于所有规则包之后</div><div class="arrow">＋</div>
+          <div class="node"><b>⑤ 完整Runtime YAML</b>本次绝对状态与操作</div><div class="arrow">→</div>
+          <div class="node"><b>模型请求</b>只返回五模板之一</div>
+        </div>
+        <div class="table-shell">
+          <table>
+            <thead><tr><th>层</th><th>文件 / ID</th><th>负责内容</th><th>不得负责</th><th>版本要求</th></tr></thead>
+            <tbody>
+              <tr><td>通用引擎</td><td><code>冒险模式_通用引擎包_20260904_v5.js</code><br><code>adventure.engine.ai-led-five-template</code></td><td>五模板协议、输入权威、跨世界角色、检定公式、通用写作纪律、失败推进、story_patch、奖励隔离，以及不改变Schema的流式展示顺序；并按expected模板导出本次引擎片段。</td><td>不写具体世界事实、角色、场景、轮数、主线ID、情绪主题或结局目标。</td><td>2026.09.04.1<br>SHA-256 929e4837d6f8…</td></tr>
+              <tr><td>世界规则</td><td><code>世界规则包_西方魔幻_20260904_v5.js</code><br><code>world.western-fantasy.rules</code></td><td>同一世界多个副本共用的客观规律、社会认知框架与当地解释方式；当前体积较小，每次完整装载。</td><td>不重复跨世界输入、检定或通用写作规则；不包含角色/场景全集，不引用M/H事件或奖励ID。</td><td>2026.09.04.1<br>SHA-256 bceb42a869d1…</td></tr>
+              <tr><td>副本运行包</td><td><code>副本运行包_腐化魔王危机_20260904_v5.js</code><br><code>dungeon1.corrupted-demon-king.runtime</code></td><td>保留自然语言副本规则，并引用<code>腐化魔王危机_结构化事件定义_20260904_v2.js</code>；直接导出39个事件的结构化定义、YAML提示词、调度索引、资产范围与上下文构建函数。</td><td>不扫描事件正文推断轮数、角色或场景，不改变五模板结构，不覆盖runtime绝对状态。</td><td>2026.09.04.1<br>SHA-256 7b32196286c0…</td></tr>
+              <tr><td>结构化事件定义</td><td><code>腐化魔王危机_结构化事件定义_20260904_v2.js</code><br><code>dungeon-event-yaml-v1</code></td><td>39个事件的event_id、event_type、schedule、asset_scope、ai_selection与rules_text；是程序索引和AI事件YAML的共同唯一来源。</td><td>不包含通用引擎规则、完整角色/场景正文或runtime；不得通过rules_text覆盖结构化字段。</td><td>Schema v1<br>SHA-256 708cde5c2f93…</td></tr>
+              <tr><td>运行态</td><td><code>runtime YAML</code></td><td>操作、队伍、属性、状态、货币、奖励和当前交互。</td><td>不重复整局剧情，不夹带另一副本的内容规则。</td><td>每次请求生成；<code>state_version</code>递增。</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="callout"><strong>生产装配规则</strong>读取<code>腐化魔王危机_提示词包清单_20260904_v5.json</code>并校验SHA-256。推荐调用入口的<code>prepareAdventurePrompt</code>：它按expected模板选取引擎规则，并按状态机选择副本上下文；最后固定追加最终自检与完整runtime YAML。已开局run固定包版本与哈希。</div>
+        <div class="callout warn"><strong>优化入口与降级入口</strong>正常调用使用<code>prepareAdventurePrompt(options)</code>或<code>composeAdventurePrompt(options)</code>。只有包版本、哈希、Schema和全部资产引用已经通过启动校验，而失败原因仅是可恢复的候选切片装配问题时，才允许调用<code>composeFullFallbackPrompt(runtimeYaml)</code>；结构化定义损坏、资产ID失效或active_event_id未知时必须停止AI请求。旧名称<code>composeDungeon1Prompt</code>仅作为完整降级入口的兼容别名。</div>
+        <div class="callout"><strong>结构化事件与资产裁剪</strong>每个事件自身以结构化定义明确schedule、角色core/possible和场景core/possible。程序直接读取字段过滤和装载，AI在事件允许范围内选择实际角色与场景；不再扫描rules_text、角色名或场景名推断关系。战斗、检定和结算只装载当前事件，并按expected_template_name分别裁剪战斗池、检定支持或奖励结算规则；世界规则、current_team与runtime YAML始终完整发送。</div>
+        <div class="callout"><strong>为什么最终自检后置</strong>自检内容由通用引擎统一维护，避免每个世界和副本复制；装配器把它放在副本运行包之后，使它能够检查刚加载的副本约束并获得更好的近因注意力。确定性的YAML结构、枚举、敌人数量、ID和金额仍必须由程序最终校验。</div>
+        <details open><summary>包兼容与失败关闭（fail closed）</summary><div>
+          <ol>
+            <li>manifest中的<code>dungeon.world_id</code>必须等于世界规则的<code>world_id</code>。</li>
+            <li>world_rules与dungeon_runtime声明的<code>compatible_engine</code>必须等于当前engine package_id。</li>
+            <li>磁盘内容哈希、package_id、package_version任何一项不符时，不调用AI；记录配置错误。</li>
+            <li>runtime中的<code>package_context</code>必须与实际装载包一致。入口把各包meta的<code>package_id/package_version</code>规范化为runtime需要的<code>id/version</code>，程序可直接使用导出的<code>packageContext</code>，不得发送meta原对象。</li>
+            <li>同一run中需要升级包时必须新开run；若未来要热迁移，另行设计状态迁移版本，不能静默替换。</li>
+          </ol>
+        </div></details>
+        <h3>为什么外来角色不需要进入世界规则</h3>
+        <p>世界规则只描述当前世界稳定成立的事实与当地解释方式，通用引擎负责跨世界角色机制，副本运行包描述当前冒险可能遇到的实体与情绪主题；<code>current_team</code>描述玩家这次带来了谁。其它世界角色和暂未归属任何已定义世界的角色都能直接进入副本。服务器必须提供真实属性、职业、种族和性格；<code>narrative_profile</code>与来源世界字段有则提供、没有则省略。AI仍能依据人物本身产生对话和检定差异，但只有来源世界明确时才能进一步描写文化对照。</p>
+        <div class="callout"><strong>未定义世界不是错误状态</strong><code>origin_world_id</code>与<code>origin_world_name</code>均为独立可选字段。两者都缺失时，不发送空字符串、null、“未知”或临时伪ID；AI不得自动把角色归入当前世界，也不得虚构故乡。</div>
+      </section>
+
+      <section id="flow">
+        <h2>状态机流程</h2>
+        <p>程序先解析玩家操作，再调用AI。不要只发送“选择2”或“下一轮”让AI猜测状态。</p>
+        <div class="flow" aria-label="状态机流程">
+          <div class="node"><b>start / next_round</b>新一轮事件</div><div class="arrow">→</div>
+          <div class="node"><b>choose</b>读取选项路由</div><div class="arrow">→</div>
+          <div class="node"><b>check / battle</b>AI检定或程序战斗</div><div class="arrow">→</div>
+          <div class="node"><b>settlement</b>summary + story_patch</div><div class="arrow">→</div>
+          <div class="node"><b>commit</b>程序合并状态</div>
+        </div>
+        <div class="callout warn"><strong>回合与场景提交</strong>start使用创建run时的初始资源，首轮不扣基础消耗；从第2轮起，程序在next_round前递增轮数并扣一次档位/词缀固定消耗。AI流式生成期间可以展示通过流式门控的临时剧情；只有完整YAML校验通过后，程序才锁定并提交目标场景、创建pending并展示选项。</div>
+      </section>
+
+      <section id="streaming">
+        <h2>前端直连流式剧情与完整提交</h2>
+        <p>前端程序直接调用AI服务并收到没有JSON包装的连续YAML正文。正常请求仍只调用模型一次，模型仍生成一份完整五模板YAML；前端一边累积原始正文，一边旁路提取白名单中的玩家可见字符串。网络回调块没有任何剧情语义，只有成功识别的完整字段或可选完整句子才是UI分片；流式文字始终属于临时展示，不能驱动业务状态。</p>
+        <div class="flow" aria-label="前端直连流式展示流程">
+          <div class="node"><b>① 冻结请求快照</b>request_id、state_version与pending</div><div class="arrow">→</div>
+          <div class="node"><b>② 立即请求AI</b>不等待本地动画结束</div><div class="arrow">→</div>
+          <div class="node"><b>③ 接收原始YAML流</b>前端持续追加rawYaml</div><div class="arrow">→</div>
+          <div class="node"><b>④ 提取可见字段</b>仅展示旁白、对话与正文</div><div class="arrow">→</div>
+          <div class="node"><b>⑤ 流结束后解析</b>完整YAML与当前快照校验</div><div class="arrow">→</div>
+          <div class="node"><b>⑥ 本地确认</b>开放选项或应用本轮状态</div>
+        </div>
+        <div class="callout"><strong>协议版本</strong>通用引擎导出<code>streamingDisplayContract</code>，版本为<code>yaml-visible-fields-v3</code>，传输方式为<code>frontend_direct_raw_yaml_stream</code>，语义成帧方式为<code>fixed_template_quoted_scalar_v1</code>。最低实现使用<code>complete_visible_field</code>，可选升级为<code>sentence_inside_open_scalar</code>；所有提前展示内容均服从<code>provisional_until_full_validation=true</code>。本协议不要求runtime或AI输出新增任何streaming字段。</div>
+        <div class="callout"><strong>同源约束</strong>发布包中的<code>adventure_yaml_stream_parser.mjs</code>导出<code>PARSER_STREAMING_CONTRACT</code>。构建或测试时必须将它与引擎的<code>streamingDisplayContract</code>逐字段深比较；版本号相同但路径、门控或原子字段不同也视为发布失败。</div>
+
+        <h3>第一项：先把供应商回调规范化为“新增正文”</h3>
+        <p>AI服务返回的每一块数据可能落在字段名、缩进、双引号、转义符甚至一个UTF-8字符中间。前端不得把一次回调当成一行、一句话或一个YAML节点，也不需要额外包装request_id、seq、delta或done。每个AI供应商适配配置必须明确以下一种模式，不允许运行时靠内容猜测。</p>
+        <div class="table-shell"><table>
+          <thead><tr><th>provider_chunk_mode</th><th>供应商回调含义</th><th>前端规范化</th><th>异常</th></tr></thead>
+          <tbody>
+            <tr><td><code>delta_text</code></td><td>每次只给新增字节或文字</td><td>UTF-8增量解码后原样追加；不按内容去重</td><td>顺序与只增语义由供应商SDK保证；连接异常则终止本次流</td></tr>
+            <tr><td><code>cumulative_text</code></td><td>每次给截至当前的完整正文快照</td><td>验证新快照以前一快照为前缀，只追加新增后缀</td><td>前缀不一致说明供应商改写了已生成文字，立即终止本次流</td></tr>
+          </tbody>
+        </table></div>
+        <div class="code-wrap"><button class="copy" data-copy>复制</button><pre><code>const response = await callAiWithRawYamlStream(prompt);
+const reader = response.body.getReader();
+const decoder = new TextDecoder("utf-8");
+
+while (true) {
+  const { value, done } = await reader.read();
+  if (done) break;
+
+  feedAddedText(decoder.decode(value, { stream: true }));
+}
+
+feedAddedText(decoder.decode());             // 冲刷UTF-8解码器尾部
+streamScanner.finishAtEof(lineBuffer);       // 处理没有LF的最后一行
+const parsed = parseYamlOnce(rawYaml);       // 只在流结束后解析完整文档
+const checked = validateAll(parsed, requestSnapshot);
+if (!checked.ok) rejectWithoutStateChange(checked);
+else confirmCompleteResponse(checked.value);</code></pre></div>
+        <div class="code-wrap"><button class="copy" data-copy>复制</button><pre><code>let providerSnapshot = "";
+
+function acceptStringFrame(frame, mode) {
+  if (mode === "delta_text") return feedAddedText(frame);
+  if (mode !== "cumulative_text") return failTransport("unknown chunk mode");
+  if (!frame.startsWith(providerSnapshot)) return failTransport("rewritten prefix");
+
+  const added = frame.slice(providerSnapshot.length);
+  providerSnapshot = frame;
+  feedAddedText(added);
+}</code></pre></div>
+        <div class="callout warn"><strong>字节流与字符串回调</strong>原始HTTP body使用一个贯穿整次响应的<code>TextDecoder("utf-8")</code>并在EOF冲刷尾部；SDK已经返回字符串时不再二次解码。空块可以忽略，供应商状态、计费信息和结束原因不得拼入rawYaml。</div>
+
+        <h3>第二项：固定YAML模板本身就是语义分片协议</h3>
+        <p>不增加<code>chunk_id</code>、BEGIN/END注释或第六种模板。字段名、固定缩进、固定顺序和单行双引号共同构成<code>fixed_template_quoted_scalar_v1</code>。AI漏写标记会比漏写普通字段更难恢复，而现有字段已经能唯一表达标题、旁白、说话者和台词。</p>
+        <div class="table-shell">
+          <table>
+            <thead><tr><th>模板</th><th>允许提前展示</th><th>必须留在原子区</th><th>展示门控</th></tr></thead>
+            <tbody>
+              <tr><td>新一轮事件</td><td>current_theme、steps中的narration，以及成对的npc+speech</td><td>options及场景/pending提交</td><td>先读到并校验template_name、event_id和scene_name，再开放剧情流</td></tr>
+              <tr><td>战斗事件</td><td>current_theme与steps</td><td>combat_start、enemies和启动战斗</td><td>template_name和scene_name必须与pending一致</td></tr>
+              <tr><td>检定</td><td>analysis</td><td>result以及后续settle_check</td><td>expected模板和pending已由请求快照确定</td></tr>
+              <tr><td>结算</td><td>current_theme与steps</td><td>summary、story_patch、final_chapter和全部资源变化</td><td>event_id和scene_name必须与pending一致</td></tr>
+              <tr><td>终章</td><td>content</td><td>最终响应缓存和任务完成UI</td><td>请求前run_status及奖励已经由程序确认</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p>可见值使用<code>json_compatible_yaml_double_quoted_v1</code>：字段必须单独占一行，值是JSON兼容的双引号字符串，不使用块标量、实际换行、YAML专有转义或行尾注释。提取器先按精确缩进和键名确定路径，再用转义感知扫描器寻找闭合双引号；不能只用<code>最后一个引号</code>或一个跨任意文本的正则判断。闭合后可以对值字面量执行<code>JSON.parse</code>得到纯文本。</p>
+        <div class="table-shell"><table>
+          <thead><tr><th>精确行前缀（␠表示一个空格）</th><th>路径</th><th>UI单元</th></tr></thead>
+          <tbody>
+            <tr><td><code>␠␠current_theme:␠</code></td><td>event_details.current_theme</td><td>事件标题；header gate通过后显示</td></tr>
+            <tr><td><code>␠␠␠␠-␠narration:␠</code></td><td>event_details.steps[].narration</td><td>一段旁白</td></tr>
+            <tr><td><code>␠␠␠␠␠␠-␠npc:␠</code></td><td>event_details.steps[].dialogues[].npc</td><td>只缓存说话者</td></tr>
+            <tr><td><code>␠␠␠␠␠␠␠␠speech:␠</code></td><td>event_details.steps[].dialogues[].speech</td><td>与缓存npc组成一条对话</td></tr>
+            <tr><td><code>␠␠analysis:␠</code></td><td>event_details.analysis</td><td>一段检定叙述</td></tr>
+            <tr><td><code>␠␠content:␠</code></td><td>event_details.content</td><td>终章正文</td></tr>
+          </tbody>
+        </table></div>
+
+        <h3>第三项：双缓冲、完整行扫描与模板状态机</h3>
+        <p><code>rawYaml</code>只做原样累积，任何提取逻辑都不得修改它；<code>lineBuffer</code>只用于寻找LF，兼容LF与CRLF。最低实现只处理已经收到换行符的完整行，EOF时再处理最后一行。每行只解析一次，禁止每到一个token就对半份YAML调用完整解析器。</p>
+        <div class="code-wrap"><button class="copy" data-copy>复制</button><pre><code>let rawYaml = "";
+let lineBuffer = "";
+
+function feedAddedText(text) {
+  rawYaml += text;
+  lineBuffer += text;
+
+  for (;;) {
+    const lf = lineBuffer.indexOf("\n");
+    if (lf &lt; 0) break;
+    let line = lineBuffer.slice(0, lf);
+    lineBuffer = lineBuffer.slice(lf + 1);
+    if (line.endsWith("\r")) line = line.slice(0, -1);
+    streamScanner.consumeCompleteLine(line);
+  }
+}</code></pre></div>
+        <p>扫描器按<code>WAIT_ROOT → READ_HEADER → READ_VISIBLE_BODY → ATOMIC_TAIL → EOF</code>推进。第一条非空行必须是<code>event_details:</code>，其第一项必须是<code>template_name</code>；READ_HEADER按当前模板规定的顺序读取且只接受允许的template_name、event_id和scene_name。重复、越序或模板不允许的头字段会关闭本次临时展示。门控通过前，只有模板中本来位于scene_name之前的current_theme等合法可见值可以缓存；门控失败则清空缓存并禁止后续提前展示。进入options、result、combat_start、enemies、summary、story_patch或final_chapter后切到ATOMIC_TAIL，只继续累积原文，不再尝试展示表外字符串。</p>
+        <div class="callout warn"><strong>结算字段的真实层级</strong>五模板以实际缩进为准：结算的<code>summary</code>、<code>story_patch</code>与<code>final_chapter</code>都位于<code>event_details</code>内部，所以原子路径分别是<code>event_details.summary</code>、<code>event_details.story_patch</code>和<code>event_details.final_chapter</code>；只有战斗模板的<code>combat_start</code>与<code>enemies</code>位于根层。前端不得按字段名称猜测层级。</div>
+        <p><code>npc</code>必须缓存到同一dialogues项的<code>speech</code>完整闭合后再一起发出。遇到非法缩进、重复头字段、未知可见路径、块标量、未闭合或非JSON兼容字符串、单行超过32 KiB时，执行<code>disable_provisional_continue_raw_accumulation</code>：停止本次临时展示但继续收完整原文，绝不猜测或修正文档。整份rawYaml建议设置256 KiB上限，超过后取消请求且不改变状态。</p>
+        <details><summary>可选升级：字段内部按完整句子展示</summary><div>
+          <p>最低实现必须支持<code>complete_visible_field</code>，已经能让每个narration和npc+speech依次出现。只有终章content或检定analysis仍显得过长时，才启用<code>sentence_inside_open_scalar</code>：确认合法字段前缀并通过header gate后，在开放双引号内部维护反斜杠、转义和Unicode转义状态，只在“。！？；”等句末标点后释放完整句子；不完整转义、半句话和闭合引号后的内容全部保留。字段闭合时释放尾句。同一rawYaml无论一次到达还是逐字节到达，忽略到达时间后的分片文本、路径、npc与行号序列必须相同。该模式仍是provisional，不能推进状态。</p>
+        </div></details>
+        <div class="callout danger"><strong>文本安全与范围</strong>所有流式文字按纯文本渲染，不执行HTML、Markdown、富文本标签或链接。提取器拒绝YAML块标量、锚点、别名、标签、复杂键和表外路径；模型提示词已经同步禁止这些形式。</div>
+
+        <h3>第四项：输入后立即反馈并立即发起请求</h3>
+        <p>前端在本地锁定本次操作、生成或取得request_id并冻结请求状态后，必须立即发起AI请求；本地动画与网络请求并行，不允许先播完动画再请求。</p>
+        <div class="table-shell">
+          <table>
+            <thead><tr><th>操作</th><th>无需AI即可立即显示</th><th>同时执行</th><th>禁止</th></tr></thead>
+            <tbody>
+              <tr><td>选择选项</td><td>高亮并锁定选项，复述玩家已选择的行动text，播放通用行动反馈</td><td>立即发送choose请求</td><td>不得预告检定成功、战斗敌人或奖励</td></tr>
+              <tr><td>战斗结束</td><td>程序已知的胜利、失败或撤退演出</td><td>立即发送battle_result请求</td><td>不得等退出战场动画结束后才请求结算</td></tr>
+              <tr><td>提交检定</td><td>保留已选择行动并显示“结果正在显现”等中性反馈</td><td>立即发送choose请求</td><td>不得由前端猜测主行动者、属性或result</td></tr>
+              <tr><td>下一轮/开局</td><td>当前场景环境动画和中性过渡</td><td>立即发送next_round/start请求</td><td>不得本地虚构新场景、NPC或事件主题</td></tr>
+              <tr><td>终章</td><td>按程序已确认的成功或失败播放中性转场</td><td>立即发送finale请求</td><td>不得提前展示尚未生成的结局细节</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="callout"><strong>本地反馈的数据来源</strong>只能使用本次已确认输入：玩家选择的options[].text、程序战斗结果、当前场景和已确认run_status。不得为了掩盖等待而新造一段可能与AI结果冲突的剧情。</div>
+
+        <h3>第五项：前端完整解析通过后才开放交互和应用状态</h3>
+        <p>前端显示了多少临时剧情都不改变提交条件。前端必须等待原始流结束，解析一次完整YAML，并依据本次请求快照依次检查模板Schema、字段顺序、枚举、事件/资产引用、pending、资源变化、终局、request_id和state_version。只有全部通过，才能把临时剧情确认为最终内容并推进本地状态机。</p>
+        <div class="table-shell">
+          <table>
+            <thead><tr><th>内容</th><th>流式阶段</th><th>完整校验通过后</th></tr></thead>
+            <tbody>
+              <tr><td>旁白、对话、analysis、content</td><td>可以标记为provisional逐段显示</td><td>转为最终文本并写入本次响应记录</td></tr>
+              <tr><td>options</td><td>不显示、不可点击</td><td>整体校验后一次性显示并创建pending</td></tr>
+              <tr><td>combat_start、enemies</td><td>不启动战斗</td><td>敌人数量、名称与事件池通过后启动</td></tr>
+              <tr><td>result</td><td>不推进状态机</td><td>公式和枚举通过后才能发起settle_check</td></tr>
+              <tr><td>summary、story_patch、final_chapter</td><td>不展示为已生效、不修改任何状态</td><td>同一前端状态事务一次性应用；任一失败则全部不应用</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="callout danger"><strong>流式失败处理</strong>断流、完整YAML非法或业务校验失败时，禁止创建pending、显示选项、启动战斗或应用任何delta。已显示的provisional剧情停在原位并进入“正在确认结果”状态；纯格式修复或受控重试必须冻结已经显示的可见字段。若错误涉及已显示内容的事件、场景或角色语义，不能静默改写，应终止本次展示并给出统一生成失败提示。</div>
+        <details open><summary>最低实现验收条件</summary><div>
+          <ol>
+            <li>前端rawYaml逐字等于AI连接从开始到EOF或完成回调收到的全部正文。</li>
+            <li>首个合法可见字段完成前，不显示AI生成内容；header gate失败时整个响应不展示。</li>
+            <li><code>delta_text</code>在UTF-8字符、CRLF、字段名、反斜杠和双引号任意位置切开时，rawYaml和展示结果都不变；合法重复文字不得被误去重。</li>
+            <li><code>cumulative_text</code>只追加快照新增后缀；重复快照不重复展示，历史前缀被改写时立即失败关闭。</li>
+            <li>同一rawYaml采用整块、任意小块或逐字节输入时，最终rawYaml及语义展示单元必须一致，不能因供应商切片不同而改变句子分段或行号。</li>
+            <li>表外字符串路径永不提前展示；npc必须与对应speech成对。</li>
+            <li>最低实现以完整可见字段为UI分片，不依赖AI额外输出chunk字段或注释标记。</li>
+            <li>块标量、非法缩进、非兼容转义、未闭合字符串或单行超限只关闭provisional提取；未超过总量上限时仍保留原文等待最终解析。</li>
+            <li>流式期间断网、取消或YAML尾部非法，state_version、pending、资源和奖励均保持不变。</li>
+            <li>完整合法响应的最终展示内容与非流式完整解析结果一致，不能出现重复段落。</li>
+            <li>options、战斗启动、检定推进和结算应用都只能由前端完整解析与校验成功事件解锁。</li>
+          </ol>
+        </div></details>
+      </section>
+
+      <section id="payload"><h2>完整输入示例：choose检定</h2><p>以下不是占位结构，而是完整runtime user消息。对应完整system消息和AI输出见<code>03_完整流程模拟/02_选择检定_choose</code>。</p><div class="code-wrap"><button class="copy" data-copy>复制</button><pre><code>package_context:
+  engine: {id: "adventure.engine.ai-led-five-template", version: "2026.09.04.1"}
+  world: {id: "world.western-fantasy.rules", version: "2026.09.04.1"}
+  dungeon: {id: "dungeon1.corrupted-demon-king.runtime", version: "2026.09.04.1"}
+operation:
+  request_id: "qa_02_choose_check"
+  type: "choose"
+  expected_template_name: "检定"
+  event_id: "M01"
+  option_id: 2
+  check_attempt: 0
+  selected_option:
+    id: 2
+    text: "推倒旧货车封住狭巷（智力检定）"
+    template_name: "检定"
+    visible: true
+    available: true
+    check_type: "常规检定"
+    check_difficulty: 12
+run_id: "qa_run_20260904_001"
+state_version: 2
+run_difficulty: "normal"
+run_seed: 1001
+check_seed: 1001
+current_round: 1
+current_scene_id: "scene_village"
+corruption_value: 10
+supply_value: 100
+run_status: "ongoing"
+team_status: "active"
+current_package:
+  relics:
+    - id: 10002
+      name: "橡木护符"
+  tools: []
+current_team:
+  - instance_id: "team_ice_001"
+    card_id: "card_ice_warrior_001"
+    name: "冰原战士"
+    quality: 4
+    profession: "战士"
+    gender: "男"
+    race: "人族"
+    personality: "勇敢"
+    origin_world_id: "western_fantasy"
+    origin_world_name: "西方魔幻世界"
+    attributes: {strength: 15, agility: 9, intelligence: 6, constitution: 14, physique: 14, dexterity: 8, perception: 10, knowledge: 6, survival: 13, social: 5, authority: 10, deception: 3}
+  - instance_id: "team_mage_001"
+    card_id: "card_star_mage_001"
+    name: "星穹法师"
+    quality: 5
+    profession: "法师"
+    gender: "女"
+    race: "人族"
+    personality: "理性"
+    attributes: {strength: 3, agility: 8, intelligence: 16, constitution: 7, physique: 6, dexterity: 12, perception: 13, knowledge: 15, survival: 5, social: 9, authority: 7, deception: 8}
+  - instance_id: "team_dwarf_001"
+    card_id: "card_lava_dwarf_king_001"
+    name: "熔岩矮人王"
+    quality: 5
+    profession: "重装战士"
+    gender: "男"
+    race: "矮人"
+    personality: "果断"
+    attributes: {strength: 14, agility: 6, intelligence: 10, constitution: 15, physique: 16, dexterity: 11, perception: 9, knowledge: 12, survival: 12, social: 7, authority: 14, deception: 4}
+  - instance_id: "team_gargoyle_001"
+    card_id: "card_granite_gargoyle_001"
+    name: "花岗岩像鬼"
+    quality: 4
+    profession: "守卫"
+    gender: "无"
+    race: "构装体"
+    personality: "沉稳"
+    attributes: {strength: 13, agility: 5, intelligence: 7, constitution: 17, physique: 18, dexterity: 6, perception: 11, knowledge: 8, survival: 9, social: 3, authority: 11, deception: 1}
+gold: 87647
+gold_policy:
+  enabled: true
+  allowed_spend_values: [100, 300, 500]
+  allowed_gain_values: [50, 100]
+  max_spend_per_event: 500
+  max_gain_per_event: 100
+  gain_limit_remaining: 200
+diamond: 1260
+diamond_policy:
+  enabled: false
+  allowed_spend_values: []
+  allowed_gain_values: []
+  max_spend_per_event: 0
+  max_gain_per_event: 0
+  gain_limit_remaining: 0
+story_state:
+  completed_events: []
+  story_flags: []
+  route_scores: {combat: 0, scheme: 0, cleanse: 0}
+  current_scene_id: "scene_village"
+  visited_scene_ids: ["scene_village"]
+  npc_states: []
+  unresolved_hooks: []
+  memory_notes: []
+  recent_event_ids: []
+  run_archetype: "corruption_hunt"
+  run_modifier_ids: ["MOD_GHOST_TIDE", "MOD_FRACTURED_TRUST"]
+reward_state:
+  material_reward_slots_remaining: 3
+  revealed_pending_rewards: []
+  granted_permanent_rewards: []
+pending_interaction:
+  event_id: "M01"
+  phase: "awaiting_choice"
+  scene_id: "scene_village"
+  scene_name: "艾德村庄"
+  event_output:
+    event_details:
+      template_name: "新一轮事件"
+      event_id: "M01"
+      current_round: 1
+      supply_value: 100
+      corruption_value: 10
+      current_theme: "边境求援"
+      current_type: "主线事件"
+      scene_name: "艾德村庄"
+      steps:
+        - narration: "傍晚的雨水沿着艾德村庄的石墙往下淌，泥路上却浮着一层不随水流散去的黏液。粮仓方向传来木板接连折断的闷响，腥甜气味里混着被腐蚀的谷物焦味。"
+        - dialogues:
+          - npc: "村长艾德"
+            speech: "猎魔人，粮仓里还有人！那些东西今天第三次从井沟里爬出来了！"
+        - narration: "你们越过翻倒的推车，看见四只史莱姆挤在粮仓门前。它们没有扑向最近的活人，反而一遍遍撞击储粮间的同一面墙，仿佛墙后有什么东西正召唤它们。"
+        - dialogues:
+          - npc: "星穹法师"
+            speech: "它们在听命行事。看黏液里的黑纹，每次撞墙都会亮一次。"
+          - npc: "熔岩矮人王"
+            speech: "先把人和怪物隔开。至于墙后的东西，等这里不再尖叫时再问。"
+        - narration: "一只史莱姆忽然从门楣上坠下，封住村民撤离的窄巷；另外三只同时朝村外森林偏转。旧货车、排水沟和异常黑纹都可能改变局势。"
+        - dialogues:
+          - npc: "村长艾德"
+            speech: "那面墙后只有去年的旧井图……如果它们真在找什么，村子恐怕早就被盯上了。"
+        - narration: "粮仓横梁再次开裂。你们只有片刻决定，是迎面挡住怪物、利用狭巷限制它们，还是先辨认黑纹背后的力量。"
+      options:
+        - text: "迎着黏液潮挡在村民身前"
+          id: 1
+          template_name: "战斗事件"
+          visible: true
+          available: true
+        - text: "推倒旧货车封住狭巷（智力检定）"
+          id: 2
+          template_name: "检定"
+          visible: true
+          available: true
+          check_type: "常规检定"
+          check_difficulty: 12
+        - text: "俯身观察黏液中的黑纹（隐藏检定）"
+          id: 3
+          template_name: "检定"
+          visible: true
+          available: true
+          check_type: "隐藏检定"
+          check_difficulty: 13
+  option_id: 2
+  selected_option:
+    id: 2
+    text: "推倒旧货车封住狭巷（智力检定）"
+    template_name: "检定"
+    visible: true
+    available: true
+    check_type: "常规检定"
+    check_difficulty: 12
+recent_run_summaries: []
+</code></pre></div></section>
+
+      <section id="fields">
+        <h2>字段字典</h2>
+        <p>可搜索字段名、含义或枚举。必填表示生产调用必须存在；条件表示只在对应状态机阶段存在。</p>
+        <input class="search" id="fieldSearch" type="search" placeholder="搜索字段，例如 outcome、钻石、圣物、NPC…" aria-label="搜索字段">
+        <div class="table-shell">
+          <table id="fieldTable">
+            <thead><tr><th>路径</th><th>类型</th><th>要求</th><th>含义</th><th>可能值 / 约束</th></tr></thead>
+            <tbody>
+              <tr><td><code>package_context.engine.id / version</code></td><td>string</td><td><span class="req">必填</span></td><td>实际装载的通用引擎身份。</td><td>必须与manifest及本局固定版本一致。</td></tr>
+              <tr><td><code>package_context.world.id / version</code></td><td>string</td><td><span class="req">必填</span></td><td>实际装载的可复用世界规则包身份。</td><td>world_id必须匹配副本运行包；外来队员不改变此值。</td></tr>
+              <tr><td><code>package_context.dungeon.id / version</code></td><td>string</td><td><span class="req">必填</span></td><td>实际装载的副本运行包身份；其中已含资产切片。</td><td>当前文档对应腐化魔王危机运行包；同一run不可变。</td></tr>
+              <tr><td><code>operation.request_id</code></td><td>string</td><td><span class="req">必填</span></td><td>本次逻辑状态迁移的幂等键。</td><td>同一逻辑请求固定不变；只有已经通过全部校验的最终响应可按该ID缓存与回放。模型attempt_id由程序内部另行管理。</td></tr>
+              <tr><td><code>operation.type</code></td><td>enum</td><td><span class="req">必填</span></td><td>本次发送给AI的状态机动作。</td><td>start、choose、settle_check、battle_result、next_round、finale。sync_state仅为程序内部动作。</td></tr>
+              <tr><td><code>operation.expected_template_name</code></td><td>enum</td><td><span class="req">必填</span></td><td>程序根据当前状态期望AI返回的模板。</td><td>新一轮事件、战斗事件、检定、结算、终章。</td></tr>
+              <tr><td><code>operation.forced_event_id</code></td><td>string|null</td><td><span class="opt">可选</span></td><td>程序强制本轮采用的事件。</td><td>仅start、next_round；必须来自当前副本运行包并通过前置校验。存在时不再抽取。</td></tr>
+              <tr><td><code>operation.event_id</code></td><td>string|null</td><td><span class="cond">条件</span></td><td>当前交互对应的稳定事件ID。</td><td>choose、settle_check、battle_result必填；start、next_round、finale省略或为null。合法集合含M01–M06、H01–H07、B_P5_LAST_STAND及25个R_P事件。</td></tr>
+              <tr><td><code>operation.option_id</code></td><td>integer|null</td><td><span class="cond">条件</span></td><td>玩家选择的选项ID。</td><td>choose、settle_check、battle_result必填；通常为1、2、3。</td></tr>
+              <tr><td><code>operation.check_attempt</code></td><td>integer</td><td><span class="cond">条件</span></td><td>同一选项的主动重试次数。</td><td>检定类choose必填；首次固定为0。只有事件明确允许玩家主动重试才+1，网络或格式修复不增加。</td></tr>
+              <tr><td><code>operation.selected_option</code></td><td>object</td><td><span class="cond">条件</span></td><td>从上一份新事件输出中解析并缓存的选项。</td><td>choose必填；包含id、text、template_name，检定选项再含check_type和check_difficulty。</td></tr>
+              <tr><td><code>operation.selected_option.template_name</code></td><td>enum</td><td><span class="cond">条件</span></td><td>选项后续路由。</td><td>只允许战斗事件、检定、结算；必须直接复制上一份AI输出。</td></tr>
+              <tr><td><code>operation.selected_option.check_type</code></td><td>enum</td><td><span class="cond">条件</span></td><td>检定是否向玩家公开属性。</td><td>检定选项必填：常规检定、隐藏检定。</td></tr>
+              <tr><td><code>operation.selected_option.check_difficulty</code></td><td>integer</td><td><span class="cond">条件</span></td><td>已含副本档位和词缀修正的最终检定难度。</td><td>0–20；检定执行时AI逐字使用该值，AI与程序均不得再次加难度。</td></tr>
+              <tr><td><code>operation.check_result</code></td><td>enum</td><td><span class="cond">条件</span></td><td>程序从上一份检定响应缓存的结果。</td><td>settle_check必填：大成功、成功、失败。</td></tr>
+              <tr><td><code>operation.battle_result</code></td><td>enum</td><td><span class="cond">条件</span></td><td>战斗程序给出的真实结果。</td><td>battle_result必填：victory、defeat、retreat。</td></tr>
+              <tr><td><code>event_candidates[]</code></td><td>array&lt;object&gt;</td><td><span class="opt">可选</span></td><td>start/next_round中程序允许AI本轮调度的有序事件白名单。</td><td>每项只含已装载included_event_ids中的event_id和正整数weight；数组顺序必须稳定并进入request快照。active_event与finale不发送；不得提供空数组。</td></tr>
+              <tr><td><code>event_candidates[].event_id</code></td><td>string</td><td><span class="cond">条件</span></td><td>候选稳定事件ID。</td><td>示例M02、H04、R_P3_BLACK_LEDGER；程序不得传包外ID。</td></tr>
+              <tr><td><code>event_candidates[].weight</code></td><td>integer</td><td><span class="cond">条件</span></td><td>候选基础权重。</td><td>正整数；AI按输入顺序做累计权重选择，并应用场景、阶段、条件、反重复和副本修正。过滤为空时不得要求AI输出错误模板。</td></tr>
+              <tr><td><code>pending_interaction</code></td><td>object|null</td><td><span class="cond">条件</span></td><td>尚未结算交互的程序缓存。</td><td>start/next_round调用前为null；新事件通过校验后创建。固定保存event_id、phase、scene_id、scene_name、event_output；选择后再保存option_id和selected_option；settle_check或battle_result还保存resolution_output。结算原子提交后清空。</td></tr>
+              <tr><td><code>pending_interaction.phase</code></td><td>enum</td><td><span class="cond">条件</span></td><td>当前尚未完成的交互阶段。</td><td>awaiting_choice、awaiting_check_result、awaiting_battle_result、awaiting_settlement_commit。</td></tr>
+              <tr><td><code>pending_interaction.event_output</code></td><td>object</td><td><span class="cond">条件</span></td><td>当前事件最初的完整“新一轮事件”解析对象。</td><td>必须包含根层event_details及全部steps/options；不得是YAML字符串、摘要或event_details子对象。</td></tr>
+              <tr><td><code>pending_interaction.resolution_output</code></td><td>object</td><td><span class="cond">条件</span></td><td>结算所承接的完整检定或战斗输出。</td><td>settle_check传完整“检定”对象；battle_result传完整“战斗事件”对象；其它operation缺省。</td></tr>
+              <tr><td><code>pending_interaction.scene_id / scene_name</code></td><td>string</td><td><span class="cond">条件</span></td><td>新事件响应通过校验后锁定的事件场景。</td><td>scene_name通过manifest映射为scene_id；后续choose、战斗、检定和结算不得改变。</td></tr>
+              <tr><td><code>run_id</code></td><td>string</td><td><span class="req">必填</span></td><td>一次副本挑战的唯一标识。</td><td>从开局到终章不变。</td></tr>
+              <tr><td><code>state_version</code></td><td>integer</td><td><span class="req">必填</span></td><td>程序已提交状态的递增版本。</td><td>每次成功提交后+1；防止旧响应覆盖新状态。</td></tr>
+              <tr><td><code>run_difficulty</code></td><td>enum</td><td><span class="req">必填</span></td><td>本局固定难度。</td><td>normal、hard、nightmare；开局确定后不可变。</td></tr>
+              <tr><td><code>run_seed</code></td><td>integer</td><td><span class="req">必填</span></td><td>事件调度和无独立检定种子时的确定性来源。</td><td>本局固定整数，可正可负。</td></tr>
+              <tr><td><code>check_seed</code></td><td>integer|null</td><td><span class="opt">可选</span></td><td>本次检定的专用种子。</td><td>缺失时使用run_seed；同一次检定重试必须不变。</td></tr>
+              <tr><td><code>current_round</code></td><td>integer</td><td><span class="req">必填</span></td><td>程序已提交的当前决策轮。</td><td>1–24；next_round调用前由程序递增。</td></tr>
+              <tr><td><code>current_scene_id</code></td><td>string</td><td><span class="req">必填</span></td><td>当前已提交场景的稳定ID。</td><td>必须来自manifest映射。start为scene_village；新事件被接受后更新为锁定目标，交互结算前不变。</td></tr>
+              <tr><td><code>corruption_value</code></td><td>integer</td><td><span class="req">必填</span></td><td>当前已提交的绝对腐化值。</td><td>固定0–100；程序对delta先按未钳制结果判断≥100硬失败，再钳制。</td></tr>
+              <tr><td><code>supply_value</code></td><td>integer</td><td><span class="req">必填</span></td><td>当前已提交的绝对补给值。</td><td>固定0–100；程序对delta先按未钳制结果判断≤0硬失败，再钳制。</td></tr>
+              <tr><td><code>run_status</code></td><td>enum</td><td><span class="req">必填</span></td><td>程序确认的整局状态。</td><td>ongoing、cleared、failed；事件defeat不自动等于failed。</td></tr>
+              <tr><td><code>team_status</code></td><td>enum</td><td><span class="req">必填</span></td><td>战斗系统确认的队伍继续行动能力。</td><td>active、defeated；不得让AI从品质或剧情伤势猜测。</td></tr>
+              <tr><td><code>current_package.relics[]</code></td><td>array&lt;object&gt;</td><td><span class="req">必填</span></td><td>玩家当前持有的圣物；持有即生效。</td><td>每项仅id和name。空列表表示没有圣物。</td></tr>
+              <tr><td><code>current_package.relics[].id</code></td><td>integer|string</td><td><span class="req">必填</span></td><td>圣物服务器定义ID。</td><td>事件效果只按ID判断；同一圣物不要重复传入。</td></tr>
+              <tr><td><code>current_package.relics[].name</code></td><td>string</td><td><span class="req">必填</span></td><td>圣物标准展示名称。</td><td>仅用于叙事，AI不得从名称猜效果。</td></tr>
+              <tr><td><code>current_package.tools[]</code></td><td>array&lt;object&gt;</td><td><span class="req">必填</span></td><td>当前局内道具。</td><td>每项id、name、count；900050、900060、900061均不得进入此列表。</td></tr>
+              <tr><td><code>current_package.tools[].id</code></td><td>integer</td><td><span class="req">必填</span></td><td>局内道具ID。</td><td>必须为提示词定义的900000号段合法道具。</td></tr>
+              <tr><td><code>current_package.tools[].name</code></td><td>string</td><td><span class="req">必填</span></td><td>局内道具标准名称。</td><td>必须与ID映射一致。</td></tr>
+              <tr><td><code>current_package.tools[].count</code></td><td>integer</td><td><span class="req">必填</span></td><td>当前持有数量。</td><td>正整数；数量归零后从列表删除。</td></tr>
+              <tr><td><code>current_team[]</code></td><td>array&lt;object&gt;</td><td><span class="req">必填</span></td><td>当前上阵队伍。</td><td>1–4名；不允许缺失后由AI补足。</td></tr>
+              <tr><td><code>current_team[].instance_id</code></td><td>string</td><td><span class="req">必填</span></td><td>玩家卡牌实例UUID。</td><td>用于程序区分实例，不作为角色表ID。</td></tr>
+              <tr><td><code>current_team[].card_id</code></td><td>integer|string</td><td><span class="req">必填</span></td><td>服务器角色定义ID。</td><td>用于关联角色基础资料。</td></tr>
+              <tr><td><code>current_team[].name</code></td><td>string</td><td><span class="req">必填</span></td><td>玩家可见display name，也是对话npc字段使用值。</td><td>队内同名，或与本副本固定NPC/敌人/Boss重名时，程序必须提供整局固定且与资产表不重名的显示别名；AI不得临时改名。</td></tr>
+              <tr><td><code>current_team[].quality</code></td><td>integer</td><td><span class="req">必填</span></td><td>卡牌品质。</td><td>只作已授权叙事信息，不能换算检定属性。</td></tr>
+              <tr><td><code>current_team[].origin_world_id</code></td><td>string</td><td><span class="opt">可选</span></td><td>已定义来源世界的稳定ID。</td><td>未定义世界时省略；不得传空字符串、null、“unknown”或临时伪ID。</td></tr>
+              <tr><td><code>current_team[].origin_world_name</code></td><td>string</td><td><span class="opt">可选</span></td><td>来源世界的玩家可见名称。</td><td>可在尚无稳定ID时单独提供；缺失时AI不得自行命名故乡。</td></tr>
+              <tr><td><code>current_team[].narrative_profile</code></td><td>string</td><td><span class="opt">可选</span></td><td>服务器审核过的简短背景事实与行为倾向；用于提高台词与角色行为的一致性。</td><td>建议80–240中文字符；未配置时省略整个字段，不传null、空字符串或“未知”。缺失不会阻断剧情，AI改用其它角色字段和本局已确认经历。</td></tr>
+              <tr><td><code>current_team[].profession / gender / race / personality</code></td><td>string</td><td><span class="req">必填</span></td><td>角色对话、关注点与合理行动依据。</td><td>使用服务器真实值；不得仅靠名称推断。</td></tr>
+              <tr><td><code>current_team[].attributes</code></td><td>object</td><td><span class="req">必填</span></td><td>AI常规检定的真实属性。</td><td>固定12项，全部为整数0–20；属性名称见枚举表。</td></tr>
+              <tr><td><code>gold</code></td><td>integer</td><td><span class="req">必填</span></td><td>账号当前绝对金币余额。</td><td>≥0；AI只输出delta，程序提交后下轮返回新余额。</td></tr>
+              <tr><td><code>gold_policy.enabled</code></td><td>boolean</td><td><span class="req">必填</span></td><td>本副本是否允许AI提出金币变化。</td><td>false时AI不得输出gold。</td></tr>
+              <tr><td><code>gold_policy.allowed_spend_values</code></td><td>array&lt;integer&gt;</td><td><span class="cond">条件</span></td><td>AI可选择的金币支出白名单。</td><td>正整数；输出时转成负gold。</td></tr>
+              <tr><td><code>gold_policy.allowed_gain_values</code></td><td>array&lt;integer&gt;</td><td><span class="cond">条件</span></td><td>AI可选择的金币获得白名单。</td><td>正整数；还受剩余正收益上限约束。</td></tr>
+              <tr><td><code>gold_policy.max_spend_per_event</code></td><td>integer</td><td><span class="cond">条件</span></td><td>单事件金币支出上限。</td><td>≥0且不得超过当前gold。</td></tr>
+              <tr><td><code>gold_policy.max_gain_per_event</code></td><td>integer</td><td><span class="cond">条件</span></td><td>单事件正金币上限。</td><td>≥0；与allowed_gain_values同时限制。</td></tr>
+              <tr><td><code>gold_policy.gain_limit_remaining</code></td><td>integer</td><td><span class="cond">条件</span></td><td>本局剩余可获得金币总量。</td><td>≥0；为0时禁止正gold，负gold不消耗该值。</td></tr>
+              <tr><td><code>diamond</code></td><td>integer</td><td><span class="req">必填</span></td><td>账号当前绝对钻石余额。</td><td>≥0；钻石价值高于金币，AI只可输出受控delta。</td></tr>
+              <tr><td><code>diamond_policy.enabled</code></td><td>boolean</td><td><span class="req">必填</span></td><td>本副本是否允许AI提出钻石变化。</td><td>建议默认false；false时其余字段即使有值也不得输出diamond。</td></tr>
+              <tr><td><code>diamond_policy.allowed_spend_values</code></td><td>array&lt;integer&gt;</td><td><span class="cond">条件</span></td><td>钻石支出金额白名单。</td><td>正整数；支出选项必须对玩家明确显示币种和金额。</td></tr>
+              <tr><td><code>diamond_policy.allowed_gain_values</code></td><td>array&lt;integer&gt;</td><td><span class="cond">条件</span></td><td>钻石获得金额白名单。</td><td>正整数；建议仅由运营配置，默认空数组。</td></tr>
+              <tr><td><code>diamond_policy.max_spend_per_event</code></td><td>integer</td><td><span class="cond">条件</span></td><td>单事件钻石支出上限。</td><td>≥0且不得超过当前diamond。</td></tr>
+              <tr><td><code>diamond_policy.max_gain_per_event</code></td><td>integer</td><td><span class="cond">条件</span></td><td>单事件正钻石上限。</td><td>≥0；与白名单同时限制。</td></tr>
+              <tr><td><code>diamond_policy.gain_limit_remaining</code></td><td>integer</td><td><span class="cond">条件</span></td><td>本局剩余可获得钻石总量。</td><td>≥0；为0时禁止正diamond。</td></tr>
+              <tr><td><code>story_state.current_scene_id</code></td><td>string</td><td><span class="req">必填</span></td><td>剧情账本中的当前场景。</td><td>必须等于顶层current_scene_id；不一致时程序在调用前修复。</td></tr>
+              <tr><td><code>story_state.completed_events[]</code></td><td>array&lt;object&gt;</td><td><span class="req">必填</span></td><td>已结算事件及真实结果。</td><td>event_id、option_id、outcome；不得只记录“完成”。</td></tr>
+              <tr><td><code>story_state.completed_events[].event_id</code></td><td>string</td><td><span class="req">必填</span></td><td>已结算事件稳定ID。</td><td>同一局不得重复；必须来自AI结算story_patch.completed_event_id。</td></tr>
+              <tr><td><code>story_state.completed_events[].option_id</code></td><td>integer</td><td><span class="req">必填</span></td><td>实际结算选项。</td><td>玩家选择使用实际ID；无选项系统结算为0。</td></tr>
+              <tr><td><code>story_state.completed_events[].outcome</code></td><td>enum</td><td><span class="req">必填</span></td><td>该事件的局部结算结果，不等同于整局状态。</td><td>great_success、success、failure、victory、defeat、retreat、resolved；defeat后run_status仍可为ongoing。</td></tr>
+              <tr><td><code>story_state.story_flags[]</code></td><td>array&lt;string&gt;</td><td><span class="req">必填</span></td><td>当前有效剧情标记；程序按不透明字符串保存。</td><td>稳定大写标识，如M01_SCHEME、M03_MEMORY_SHATTERED、PLAN_H03、HINT_H03。程序无需理解普通flag语义。</td></tr>
+              <tr><td><code>story_state.route_scores</code></td><td>object</td><td><span class="req">必填</span></td><td>三条隐性构筑路线累计值。</td><td>combat、scheme、cleanse；非负整数。</td></tr>
+              <tr><td><code>story_state.visited_scene_ids[]</code></td><td>array&lt;string&gt;</td><td><span class="req">必填</span></td><td>本局到访过的场景。</td><td>使用场景ID枚举；历史记录不代表禁止重访。</td></tr>
+              <tr><td><code>story_state.npc_states[]</code></td><td>array&lt;object&gt;</td><td><span class="req">必填</span></td><td>有持续意义的NPC状态。</td><td>每项包含npc和state；同一npc只保留最新状态。</td></tr>
+              <tr><td><code>story_state.npc_states[].npc</code></td><td>string</td><td><span class="req">必填</span></td><td>NPC精确名称。</td><td>必须来自角色表或事件明确NPC，不能使用队员实例ID。</td></tr>
+              <tr><td><code>story_state.npc_states[].state</code></td><td>enum</td><td><span class="req">必填</span></td><td>NPC当前关系或存在状态。</td><td>met、trusted、cooperative、neutral、wary、hostile、departed、dead。</td></tr>
+              <tr><td><code>story_state.unresolved_hooks[]</code></td><td>array&lt;string&gt;</td><td><span class="req">必填</span></td><td>仍需后续推进或回答的悬念。</td><td>最多3条；每条只表达一个问题。已有3条时，AI必须同次先解决至少1条才能新增。resolved按原字符串精确移除。</td></tr>
+              <tr><td><code>story_state.memory_notes[]</code></td><td>array&lt;string&gt;</td><td><span class="req">必填</span></td><td>替代完整剧情历史的精简因果事实。</td><td>最多24条，每条建议不超过60个中文字符；优先写“原因→改变→后续作用或损失”。</td></tr>
+              <tr><td><code>story_state.recent_event_ids[]</code></td><td>array&lt;string&gt;</td><td><span class="req">必填</span></td><td>近期事件，用于避免短期重复。</td><td>按发生顺序保留最近3–5个稳定事件ID。</td></tr>
+              <tr><td><code>story_state.run_archetype</code></td><td>enum</td><td><span class="req">必填</span></td><td>本局主压力。</td><td>corruption_hunt、scarcity、ghost_tide、underworld、time_fracture；程序在创建run时按副本公式确定，生产输入不得为null。</td></tr>
+              <tr><td><code>story_state.run_modifier_ids[]</code></td><td>array&lt;enum&gt;</td><td><span class="req">必填</span></td><td>本局两个机械词缀。</td><td>程序在创建run时按副本公式确定；从start起固定恰好2项、互不相同且不同组，不得为空。</td></tr>
+              <tr><td><code>reward_state.material_reward_slots_remaining</code></td><td>integer</td><td><span class="req">必填</span></td><td>本局剩余材料抽取触发次数。</td><td>≥0；为0时AI禁止输出900050。</td></tr>
+              <tr><td><code>reward_state.revealed_pending_rewards[]</code></td><td>array&lt;object&gt;</td><td><span class="req">必填</span></td><td>程序已生成、玩家已看到但尚未正式带出的奖励。</td><td>claim_id唯一；status固定为pending。</td></tr>
+              <tr><td><code>reward_state.revealed_pending_rewards[].claim_id</code></td><td>string</td><td><span class="req">必填</span></td><td>本次奖励声明的幂等标识。</td><td>同一run内唯一；转入最终结算时用于去重和追踪。</td></tr>
+              <tr><td><code>reward_state.revealed_pending_rewards[].type</code></td><td>enum</td><td><span class="req">必填</span></td><td>永久资源类别。</td><td>固定为equipment_material、relic、fate、card；与id共同构成机器标识。</td></tr>
+              <tr><td><code>reward_state.revealed_pending_rewards[].id</code></td><td>integer|string</td><td><span class="req">必填</span></td><td>服务器资源定义ID。</td><td>必须属于对应type；AI不得改写。</td></tr>
+              <tr><td><code>reward_state.revealed_pending_rewards[].name</code></td><td>string</td><td><span class="req">必填</span></td><td>服务器标准玩家展示名称。</td><td>AI提及时必须逐字复制，不得自行翻译、缩写或补全。</td></tr>
+              <tr><td><code>reward_state.revealed_pending_rewards[].count</code></td><td>integer</td><td><span class="req">必填</span></td><td>待带出数量。</td><td>正整数；前端直接据此展示。</td></tr>
+              <tr><td><code>reward_state.revealed_pending_rewards[].status</code></td><td>enum</td><td><span class="req">必填</span></td><td>程序内部奖励状态。</td><td>过程阶段唯一合法值为pending；AI不得在玩家可见文本中翻译或朗读该状态。</td></tr>
+              <tr><td><code>reward_state.granted_permanent_rewards[]</code></td><td>array&lt;object&gt;</td><td><span class="cond">条件</span></td><td>程序已落库的永久奖励。</td><td>只在finale阶段提供并允许AI写入终章。</td></tr>
+              <tr><td><code>reward_state.granted_permanent_rewards[].type</code></td><td>enum</td><td><span class="cond">条件</span></td><td>已入账资源类别。</td><td>取值与pending的type一致。</td></tr>
+              <tr><td><code>reward_state.granted_permanent_rewards[].id</code></td><td>integer|string</td><td><span class="cond">条件</span></td><td>已入账资源定义ID。</td><td>与type共同构成机器标识。</td></tr>
+              <tr><td><code>reward_state.granted_permanent_rewards[].name</code></td><td>string</td><td><span class="cond">条件</span></td><td>已入账资源的服务器标准名。</td><td>相同type+id必须与pending阶段逐字一致。</td></tr>
+              <tr><td><code>reward_state.granted_permanent_rewards[].count</code></td><td>integer</td><td><span class="cond">条件</span></td><td>实际入账数量。</td><td>前端使用程序值；不得从AI文本提取。</td></tr>
+              <tr><td><code>recent_run_summaries[]</code></td><td>array&lt;object|string&gt;</td><td><span class="opt">可选</span></td><td>最近最多3局摘要，用于程序选词缀及AI跨局反重复。</td><td>生产推荐结构化对象；兼容期可传终章文本。按最近到较早排序。</td></tr>
+              <tr><td><code>recent_run_summaries[].run_archetype</code></td><td>enum</td><td><span class="cond">条件</span></td><td>该局主压力。</td><td>与本局五种主压力枚举一致。</td></tr>
+              <tr><td><code>recent_run_summaries[].run_modifier_ids[]</code></td><td>array&lt;enum&gt;</td><td><span class="cond">条件</span></td><td>该局两个词缀。</td><td>恰好2项；字段名固定为run_modifier_ids，不使用run_modifiers。</td></tr>
+              <tr><td><code>hidden_event_ids[] / random_event_ids[]</code></td><td>array&lt;string&gt;</td><td><span class="cond">条件</span></td><td>该局实际完成的隐藏与随机事件。</td><td>只记录真实稳定ID；不含候选和未触发事件。</td></tr>
+              <tr><td><code>dominant_route / ending_variant</code></td><td>enum / string</td><td><span class="cond">条件</span></td><td>该局主路线与结局变体。</td><td>dominant_route只允许combat、scheme、cleanse、mixed；ending_variant使用程序稳定标识。</td></tr>
+              <tr><td><code>recent_run_summaries[].content</code></td><td>string</td><td><span class="opt">可选</span></td><td>上一局终章的短摘要或原content。</td><td>只辅助语义去重，不替代结构化字段。</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section id="enums">
+        <h2>完整枚举与值域</h2>
+        <p>以下值区分大小写并按字符串精确匹配。程序应在调用AI前拒绝表外值；不要把中文展示文案直接替代英文机器枚举。</p>
+
+        <h3>事件结果：<code>story_patch.outcome</code></h3>
+        <div class="table-shell">
+          <table>
+            <thead><tr><th>值</th><th>使用条件</th><th>来源映射</th><th>不得混用</th></tr></thead>
+            <tbody>
+              <tr><td><code>great_success</code></td><td>AI检定结果为“大成功”。</td><td><code>operation.check_result = 大成功</code></td><td>不能用于普通成功或战斗胜利。</td></tr>
+              <tr><td><code>success</code></td><td>AI检定结果为“成功”。</td><td><code>operation.check_result = 成功</code></td><td>不能用于战斗胜利；直接结算使用resolved。</td></tr>
+              <tr><td><code>failure</code></td><td>AI检定结果为“失败”，或事件规则明确的非战斗失败。</td><td><code>operation.check_result = 失败</code></td><td>不能代替defeat；通常仍可带后果继续。</td></tr>
+              <tr><td><code>victory</code></td><td>战斗程序确认胜利。</td><td><code>operation.battle_result = victory</code></td><td>AI不得根据剧情自行判胜。</td></tr>
+              <tr><td><code>defeat</code></td><td>战斗程序确认失败。</td><td><code>operation.battle_result = defeat</code></td><td>只表示本场战斗失败；AI按事件层级给出后果，程序再看final_chapter决定是否结束整局。</td></tr>
+              <tr><td><code>retreat</code></td><td>战斗程序确认主动或规则允许的撤退。</td><td><code>operation.battle_result = retreat</code></td><td>不能写成failure或defeat；通常代价低于defeat，但会放弃当轮目标或独特奖励。</td></tr>
+              <tr><td><code>resolved</code></td><td>无需检定或战斗的直接结算、系统结算。</td><td>选择的template_name为“结算”</td><td>不得用于掩盖未知检定或战斗结果。</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="callout"><strong>映射必须一一对应</strong>“大成功→great_success、成功→success、失败→failure；victory、defeat、retreat保持原值；直接结算→resolved”。程序收到不匹配结果时应拒绝提交。</div>
+
+        <h3>状态机与模板</h3>
+        <div class="table-shell">
+          <table>
+            <thead><tr><th>字段</th><th>全部合法值</th><th>说明</th></tr></thead>
+            <tbody>
+              <tr><td><code>operation.type</code></td><td>start、choose、settle_check、battle_result、next_round、finale</td><td>只表示本次AI请求动作；sync_state不得发送给AI。</td></tr>
+              <tr><td><code>operation.expected_template_name</code></td><td>新一轮事件、战斗事件、检定、结算、终章</td><td>由程序按状态机计算，不由AI选择。</td></tr>
+              <tr><td><code>selected_option.template_name</code></td><td>战斗事件、检定、结算</td><td>选项不能直接指向新一轮事件或终章。</td></tr>
+              <tr><td><code>selected_option.check_type</code></td><td>常规检定、隐藏检定</td><td>仅检定选项存在。</td></tr>
+              <tr><td><code>operation.check_result</code></td><td>大成功、成功、失败</td><td>逐字复制上一份AI检定输出的event_details.result。</td></tr>
+              <tr><td><code>operation.battle_result</code></td><td>victory、defeat、retreat</td><td>由战斗程序产生。</td></tr>
+              <tr><td><code>run_status</code></td><td>ongoing、cleared、failed</td><td>这是程序权威整局状态；事件outcome为failure/defeat/retreat时仍可保持ongoing。</td></tr>
+              <tr><td><code>run_difficulty</code></td><td>normal、hard、nightmare</td><td>开局固定整局；分别对应普通、困难、噩梦。</td></tr>
+              <tr><td><code>final_chapter</code>（AI输出）</td><td>true、false</td><td>普通及可推进失败为false；明确通关、T4失败、资源/全灭阈值或主线目标已不可达时为true。程序按终局白名单验证后设置run_status并发起finale。</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h3>剧情、角色与奖励状态</h3>
+        <div class="table-shell">
+          <table>
+            <thead><tr><th>字段</th><th>全部合法值</th><th>语义</th></tr></thead>
+            <tbody>
+              <tr><td><code>story_state.npc_states[].state</code></td><td>met、trusted、cooperative、neutral、wary、hostile、departed、dead</td><td>关系阶梯为hostile→wary→neutral→cooperative→trusted；met做一级关系变化时按neutral起点；departed/dead为终态，普通改善不得改变。dead只在剧情明确确认死亡时使用。</td></tr>
+              <tr><td><code>story_state.run_archetype</code></td><td>corruption_hunt、scarcity、ghost_tide、underworld、time_fracture</td><td>分别为腐化追猎、资源匮乏、亡魂潮、地下势力、时间裂变；从start起必须已有合法值。</td></tr>
+              <tr><td><code>reward.type</code></td><td>equipment_material、relic、fate、card</td><td>装备材料、圣物、因缘、卡牌；必须与服务器ID类型一致。</td></tr>
+              <tr><td><code>revealed_pending_rewards[].status</code></td><td>pending</td><td>当前协议只有这一内部值；正式入账后移入granted列表，不把status改成自造值，也不让AI朗读状态。</td></tr>
+              <tr><td><code>summary[].type</code>（AI输出）</td><td>item、player_attr</td><td>item仅用于900000号段；player_attr仅允许corruption、supply及受控gold、diamond变化。</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h3>机械词缀</h3>
+        <p><code>story_state.run_modifier_ids</code>从start起必须恰好2项，且两项不得来自同一互斥组。程序按副本包中的run_seed公式确定并持久化；AI只应用和原样回传。</p>
+        <div class="table-shell">
+          <table>
+            <thead><tr><th>互斥组</th><th>合法ID</th></tr></thead>
+            <tbody>
+              <tr><td>资源</td><td>MOD_FAMINE、MOD_BROKEN_ROADS</td></tr>
+              <tr><td>异常</td><td>MOD_GHOST_TIDE、MOD_TIME_ECHO</td></tr>
+              <tr><td>遭遇</td><td>MOD_BLOOD_MOON、MOD_DEMON_PATROLS</td></tr>
+              <tr><td>交涉</td><td>MOD_BLACK_MARKET、MOD_FRACTURED_TRUST</td></tr>
+              <tr><td>腐化</td><td>MOD_SACRED_ECHO、MOD_DEEP_CORRUPTION</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="callout"><strong>开局确定公式</strong>令base=abs(run_seed)。主压力按[corruption_hunt, scarcity, ghost_tide, underworld, time_fracture]取base mod 5；若与最近一局相同则循环后移1位。词缀按上表从资源组第一项开始的显示顺序组成10项有序表：第一项从(base+13) mod 10起取；第二项从(base+37) mod 10起循环扫描到不同组。若第一项已与最近一局重合，第二项必须避开最近一局两个词缀。创建run时一次性保存，之后不重算。</div>
+
+        <h3>属性与场景ID</h3>
+        <p>角色属性固定12项：<code>strength</code>力量、<code>agility</code>敏捷、<code>intelligence</code>智力、<code>constitution</code>体力、<code>physique</code>体魄、<code>dexterity</code>灵巧、<code>perception</code>感知、<code>knowledge</code>学识、<code>survival</code>生存、<code>social</code>社交、<code>authority</code>威严、<code>deception</code>狡诈；每项均为0–20整数。</p>
+        <details><summary>展开全部23个current_scene_id</summary><div><p><code>scene_village</code> 艾德村庄；<code>scene_church</code> 神圣教堂；<code>scene_forge</code> 铁匠铺；<code>scene_tavern</code> 酒馆；<code>scene_forgotten_cave</code> 遗忘洞穴；<code>scene_forest</code> 幽暗森林；<code>scene_elf_camp</code> 精灵营地；<code>scene_vampire_manor</code> 吸血鬼庄园；<code>scene_swamp</code> 幽灵沼泽；<code>scene_rivertown</code> 河畔镇；<code>scene_square</code> 城市广场；<code>scene_inn</code> 旅店；<code>scene_black_market</code> 黑市；<code>scene_ancient_temple</code> 古老神庙；<code>scene_mountains</code> 黑风山脉；<code>scene_dwarf_mine</code> 矮人矿洞；<code>scene_dragon_nest</code> 巨龙巢穴；<code>scene_bandit_camp</code> 强盗营地；<code>scene_castle</code> 魔王城堡；<code>scene_demon_altar</code> 恶魔祭坛；<code>scene_light_temple</code> 光明神殿；<code>scene_time_rift</code> 时间裂缝；<code>scene_throne</code> 魔王大厅。</p></div></details>
+
+        <h3>新事件场景提交</h3>
+        <ol>
+          <li>start/next_round调用时，runtime中的current_scene_id是调用前已提交场景。</li>
+          <li>AI返回“新一轮事件”，scene_name表示本事件目标场景，可为当前场景或副本连接白名单中的相邻场景；固定主线可以直接锁定其授权目标。</li>
+          <li>程序用manifest的scene_name_to_id得到target_scene_id，校验连接关系、事件阶段和固定主线目标。</li>
+          <li>通过后创建pending_interaction，写入scene_id/scene_name；同时更新顶层与story_state.current_scene_id，并把新ID去重追加到visited_scene_ids。</li>
+          <li>上述场景提交、pending创建与state_version+1必须原子完成，并发生在玩家看到选项之前；若响应非法则不移动场景。</li>
+          <li>choose、settle_check、battle_result和结算必须使用pending锁定场景，禁止再次移动。</li>
+        </ol>
+      </section>
+
+      <section id="operations">
+        <h2>操作枚举与条件字段</h2>
+        <div class="table-shell">
+          <table>
+            <thead><tr><th>operation.type</th><th>何时使用</th><th>附加必填字段</th><th>期望模板</th><th>程序职责</th></tr></thead>
+            <tbody>
+              <tr><td><code>start</code></td><td>新副本首轮</td><td>run_id、种子、完整初始状态、已确定主压力和2词缀</td><td>新一轮事件</td><td>创建run；current_round=1；不扣首轮基础消耗；pending必须为null。</td></tr>
+              <tr><td><code>next_round</code></td><td>上一事件结算后</td><td>已递增的current_round及已扣一次基础/词缀消耗的资源</td><td>新一轮事件</td><td>先推进回合并检查硬阈值；仍ongoing才调用AI。</td></tr>
+              <tr><td><code>choose</code></td><td>玩家选择选项</td><td>event_id、option_id、selected_option、pending.event_output</td><td>按选项路由</td><td>验证选项存在、可见且available=true，且selected_option与event_output逐字一致。</td></tr>
+              <tr><td><code>settle_check</code></td><td>AI检定完成后</td><td>event_id、option_id、check_result、pending.event_output、pending.resolution_output（完整检定对象）</td><td>结算</td><td>缓存检定结果，不允许重新掷骰；check_result必须等于resolution_output.event_details.result。</td></tr>
+              <tr><td><code>battle_result</code></td><td>战斗程序返回结果</td><td>event_id、option_id、battle_result、pending.event_output、pending.resolution_output（完整战斗对象）</td><td>结算</td><td>战斗结果是程序权威；resolution_output固定本场敌人与开战叙事，AI依据事件表决定局部后果和是否进入终章。</td></tr>
+              <tr><td><code>finale</code></td><td>run_status已结束、team_status已同步且奖励已落库</td><td>run_status、granted_permanent_rewards</td><td>终章</td><td>先处理永久奖励，再调用AI。</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="callout"><strong>pending phase迁移</strong>新事件接受后为awaiting_choice；choose请求使用冻结的awaiting_choice快照。检定请求在途时，前端实时状态可临时记为awaiting_check_result，但重试仍复用原冻结请求；有效检定返回后为awaiting_settlement_commit。战斗配置返回并真正开战后为awaiting_battle_result；战斗产生结果后为awaiting_settlement_commit。直接结算响应校验期间也进入awaiting_settlement_commit。提交成功后清空pending。</div>
+        <div class="callout"><strong>sync_state不调用AI</strong>状态校正只在程序内部修改权威快照并递增state_version；下一次start之外的合法operation再携带新状态。否则五种输出模板中没有合法响应可返回。</div>
+      </section>
+
+
+      <section id="checks">
+        <h2>属性语义、角色背景与检定</h2>
+        <p>跨世界角色以及来源世界暂未定义的角色，都通过同一套检定产生玩法差异：数值属性决定基础能力；职业、种族、性格和背景只在当前行动存在明确因果时提供共享的情境修正。来源世界是额外叙事事实，不是角色可用性的前置条件。</p>
+        <div class="table-shell">
+          <table>
+            <thead><tr><th>英文键</th><th>唯一中文名</th><th>使用边界</th><th>典型行动</th></tr></thead>
+            <tbody>
+              <tr><td><code>strength</code></td><td>力量</td><td>爆发性推、拉、举、破。</td><td>抬门、推车、破坏支撑。</td></tr>
+              <tr><td><code>agility</code></td><td>敏捷</td><td>速度、闪避、全身协调。</td><td>穿过落石、快速救人。</td></tr>
+              <tr><td><code>intelligence</code></td><td>智力</td><td>即时分析、逻辑、结构、方案。</td><td>设计机关解法、分析法阵结构。</td></tr>
+              <tr><td><code>constitution</code></td><td>体力</td><td>持续行动、憋气、疲劳耐久。</td><td>长距离负重、在水下坚持。</td></tr>
+              <tr><td><code>physique</code></td><td>体魄</td><td>承受冲击、寒热、疾病与毒性。</td><td>顶住撞击、抵御严寒或疫气。</td></tr>
+              <tr><td><code>dexterity</code></td><td>灵巧</td><td>手部精细操作与器械控制。</td><td>拆机关、接线、无声取物。</td></tr>
+              <tr><td><code>perception</code></td><td>感知</td><td>当下观察、听辨、追踪细节。</td><td>看破痕迹、发现伏击。</td></tr>
+              <tr><td><code>knowledge</code></td><td>学识</td><td>已学习的历史、宗教、医药与理论。</td><td>辨铭文、识别仪式或病症。</td></tr>
+              <tr><td><code>survival</code></td><td>生存</td><td>辨路、野外资源、气候与踪迹。</td><td>穿越沼泽、寻找安全营地。</td></tr>
+              <tr><td><code>social</code></td><td>社交</td><td>共情、说服、建立关系。</td><td>安抚证人、促成合作。</td></tr>
+              <tr><td><code>authority</code></td><td>威严</td><td>号令、震慑、公开秩序。</td><td>控制骚乱、逼哨兵退让。</td></tr>
+              <tr><td><code>deception</code></td><td>狡诈</td><td>说谎、伪装、诱导与博弈。</td><td>伪造身份、制造假命令。</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="callout warn"><strong>策划别名</strong>“欺诈”可以在策划讨论中指<code>deception</code>，但包内事件和玩家可见后缀统一写“狡诈检定”。幸运、魔力、魅力、意志等不属于本协议属性，除非未来升级协议版本。</div>
+        <h3>四种内部检定模式</h3>
+        <div class="table-shell"><table><thead><tr><th>内部模式</th><th>何时使用</th><th>玩家看到</th><th>取值方式</th></tr></thead><tbody>
+          <tr><td><code>standard_fixed</code></td><td>副本事件已指定属性。</td><td>“（属性名检定）”</td><td>目标属性最高的队员作为主行动者。</td></tr>
+          <tr><td><code>standard_auto</code></td><td>事件只写行动，AI按主要瓶颈选一个属性。</td><td>“（属性名检定）”</td><td>先定属性，再取最高真实值。</td></tr>
+          <tr><td><code>hidden_attribute</code></td><td>主要依赖一个属性，但不希望提前暴露；副本事件必须同时写明属性键。</td><td>“（隐藏检定）”</td><td>公式同常规检定，隐藏属性名；执行时不临时改成context。</td></tr>
+          <tr><td><code>hidden_context</code></td><td>综合路线、前置、道具、关系和身份；副本事件必须明确标记。</td><td>“（隐藏检定）”</td><td>context_score 0–12，再加掷点和情境修正；执行时不临时改成attribute。</td></tr>
+        </tbody></table></div>
+        <h3>跨世界情境如何进入成功率</h3>
+        <ol>
+          <li>常规/隐藏属性检定先选<code>primary_actor</code>：目标属性最高者；并列时用角色适配和队伍顺序稳定裁决。叙事必须由该角色真正完成关键动作。</li>
+          <li>同一主行动者的职业、种族、性格以及已提供的<code>narrative_profile</code>共享一个<code>role_fit_bonus</code>，只能是-2、0、+2，不能按资料项分别累加。缺少<code>narrative_profile</code>时照常检定。</li>
+          <li>道具、flag、NPC关系、明确圣物互动等其它来源通常各±2；所有优势与劣势净值限制在-6到+6，同一事实不重复计算。</li>
+          <li>背景只能解释行动为何更容易或更难，不能创造表外技能。例：熟悉宫廷礼法可帮助陌生王国谈判；它不能自动赋予开锁或治疗能力。</li>
+          <li>第二名队员只有在剧情中确实提供不同来源协助时才可贡献一个+2，不把全队背景无条件叠加。</li>
+        </ol>
+        <div class="callout"><strong>研发实现量</strong>上述角色选择、适配判断和掷点仍由AI完成。程序只需传真实数据、固定种子并缓存响应；无需开发技能标签系统或专用跨界事件系统。</div>
+      </section>
+
+      <section id="consequences">
+        <h2>事件链、转折与失败协议</h2>
+        <p>曲折、失败后果与隐藏回收都通过固定<code>story_patch</code>保存事件因果，不增加输入字段或输出模板。程序把字符串状态完整回传，并对终局条件做白名单校验。</p>
+
+        <div class="cards">
+          <article class="card"><b>转折要改变玩法</b><p>有效转折必须改变选项、检定依据、NPC、资源、奖励、后续事件或终局条件，不能只有一段“原来如此”的旁白。</p></article>
+          <article class="card"><b>失败可以推进</b><p>普通或支线失败会留下资源损失、NPC恶化、路线关闭或不利flag，然后继续下一轮。</p></article>
+          <article class="card"><b>严重后果先预警</b><p>AI在选项前用世界内信息说明护送目标、唯一出口、倒计时或不可逆风险，但不显示内部等级和概率。</p></article>
+        </div>
+
+        <h3>内部失败层级</h3>
+        <div class="table-shell">
+          <table>
+            <thead><tr><th>层级</th><th>典型事件</th><th>AI结算方式</th><th>final_chapter</th><th>程序处理</th></tr></thead>
+            <tbody>
+              <tr><td><code>T1</code></td><td>普通随机、M01、M02</td><td>小到中等资源损失或一个可回收不利flag；主线继续。</td><td>通常false</td><td>提交summary与story_patch，保持ongoing，进入next_round。</td></tr>
+              <tr><td><code>T2</code></td><td>隐藏/精英、M03、M04</td><td>失去独特奖励、关闭支线或恶化NPC，并承担较重代价；主线通常继续。</td><td>通常false</td><td>提交真实损失；不得因为defeat自动设failed。</td></tr>
+              <tr><td><code>T3</code></td><td>M05主线门槛</td><td>先检查既有道具、情报或关系能否提供昂贵替代；无替代且目标不可达才结束。</td><td>视替代条件</td><td>若true，仅允许内置M05目标不可达规则或硬失败阈值。</td></tr>
+              <tr><td><code>T4</code></td><td>M06、B_P5_LAST_STAND、全灭/资源阈值</td><td>defeat或retreat结束整局；只有M06谋略失败且满足条件时先转入一次B_P5_LAST_STAND。</td><td>通常true</td><td>验证稳定事件ID/阈值，设置cleared或failed，结算永久奖励后再finale。</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="callout"><strong>failure_tier不是协议字段</strong>T1–T4只写在副本提示词的事件定义里，不能出现在AI YAML，也不要求程序存储。程序以<code>event_id + final_chapter + 硬失败阈值</code>校验终局。</div>
+
+        <h3>battle_result提交顺序</h3>
+        <ol>
+          <li>战斗程序产生且只产生<code>victory / defeat / retreat</code>之一。</li>
+          <li>程序以<code>operation.type=battle_result</code>发送结果、event_id、option_id和原<code>pending_interaction</code>；通常<code>run_status=ongoing</code>，若战斗程序已确认全队无法继续则发送team_status=defeated。无需向AI发送逐角色战斗生命。</li>
+          <li>AI输出“结算”，<code>story_patch.outcome</code>必须逐字对应战斗结果；AI按事件表给出资源、flag、NPC、悬念和<code>final_chapter</code>。</li>
+          <li>程序先校验outcome映射、summary范围、flag结构和幂等键，再原子提交一次。defeat/retreat且<code>final_chapter=false</code>时继续下一轮。</li>
+          <li><code>final_chapter=true</code>时，程序只接受：M06或B_P5_LAST_STAND的明确成败、M05无替代入口、team_status=defeated、结算后未钳制补给≤0、未钳制腐化≥100，或后续配置加入的终局白名单；随后设置run_status并处理局外奖励。</li>
+        </ol>
+
+        <div class="callout warn"><strong>不要把本场失败等同于整局失败</strong><code>outcome=defeat</code>只记录战斗事实。真正结束副本由<code>final_chapter</code>和程序终局校验共同决定。</div>
+
+        <h3>隐藏事件与多轮记忆</h3>
+        <div class="two-col">
+          <div class="card"><b>AI写入</b><ul class="checklist">
+            <li><code>PLAN_H01…PLAN_H07</code>：本局选中的隐藏支线计划</li>
+            <li><code>HINT_H01…HINT_H07</code>：玩家已经见过的世界内线索</li>
+            <li><code>unresolved_hooks</code>：仍待回答的问题</li>
+            <li><code>memory_notes</code>：原因、改变及后续作用或损失</li>
+          </ul></div>
+          <div class="card"><b>程序只做</b><ul class="checklist">
+            <li>按字符串保存add/remove flags，不解释PLAN或HINT</li>
+            <li>按原字符串添加/解决unresolved hooks</li>
+            <li>追加并裁剪memory_notes，不改写内容</li>
+            <li>每次请求发送合并后的完整story_state</li>
+          </ul></div>
+        </div>
+        <div class="callout"><strong>隐藏事件出现条件</strong>AI必须同时看到对应PLAN、HINT、合法阶段/场景和事件条件。这样玩家先发现蛛丝马迹，再决定是否追查，不会像随机掉进奖励房。</div>
+      </section>
+
+      <section id="memory">
+        <h2>结构化事件、上下文优化与剧情记忆</h2>
+        <p>世界规则和完整runtime YAML始终发送；事件自身以结构化字段声明调度条件和可用资产范围。装配器只读取这些字段，不扫描叙事正文；AI在每个事件自己的core/possible范围内选择实际角色与场景。这样保留AI创作随机性，同时避免角色表、场景表和事件全集反复出现。</p>
+        <div class="table-shell">
+          <table>
+            <thead><tr><th>上下文模式</th><th>适用操作</th><th>引擎内容</th><th>副本内容</th><th>程序必须提供</th></tr></thead>
+            <tbody>
+              <tr><td><code>event_generation</code></td><td>start、next_round</td><td>通用核心＋“新一轮事件”规则和唯一模板</td><td>公共机制、全局短提纲、schedule过滤后的事件YAML，以及这些事件asset_scope的资产并集＋当前场景</td><td>current_round、current_scene_id、completed_events、可选forced_event_id；若发送event_candidates，其ID必须与装载集合一致</td></tr>
+              <tr><td><code>active_event</code></td><td>choose、settle_check、battle_result</td><td>通用核心＋本次expected模板相关规则</td><td>当前event_id的完整事件YAML＋该模板必要规则与局部自检：战斗加载战斗分类，检定加载检定依赖，结算加载状态、奖励与终局规则；不发送全局事件调度自检、其它事件和资产全集</td><td>active_event_id、当前事件的新事件原始输出、选项快照、pending_interaction及检定/战斗结果</td></tr>
+              <tr><td><code>finale</code></td><td>finale</td><td>通用核心＋终章规则和模板</td><td>终章规则、主压力/路线说明与全局短提纲；不发送角色表、场景表、事件全集、调度权重或战斗池</td><td>程序最终run_status、完整story_state及已确认永久奖励</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="callout"><strong>不改变Runtime schema</strong>上下文模式和included_event_ids由装配器直接写入静态上下文范围说明，不要求新增AI输出字段，也不要求runtime YAML新增context_scope。入口会把现有operation.expected_template_name传给副本切片器，以选择战斗、检定或结算规则；程序仍以该字段、pending和入口返回的contextScope做一致性审计。</div>
+        <h3>事件YAML是唯一事件数据源</h3>
+        <p>副本包导出<code>eventDefinitions</code>，每项直接包含event_id、event_type、schedule、asset_scope、ai_selection和rules_text。<code>eventScheduleIndex</code>、<code>eventAssetIndex</code>以及发送给AI的<code>eventPromptById</code>全部由同一对象映射生成，因此不存在“程序配置一份、提示词正文另一份”的双源问题。</p>
+        <div class="code-wrap"><button class="copy" data-copy>复制</button><pre><code>event_definition:
+  schema_version: "dungeon-event-yaml-v1"
+  event_id: "R_P1_TRAPPED_SCOUT"
+  event_type: "random"
+  schedule:
+    phases: ["P1"]
+    round_min: 1
+    round_max: 4
+    fixed: false
+    repeatable: false
+  asset_scope:
+    roles:
+      core:
+        - role_id: "200000131"
+          name: "猎人马克"
+      possible:
+        - role_id: "290000012"
+          name: "林地猎人"
+        - role_id: "200000224"
+          name: "巨熊"
+      optional_select_min: 0
+      optional_select_max: 3
+    scenes:
+      core:
+        - scene_id: "scene_forest"
+          name: "幽暗森林"
+      possible:
+        - scene_id: "scene_forgotten_cave"
+          name: "遗忘洞穴"
+      include_current_scene_context: true
+      optional_select_min: 0
+      optional_select_max: 1
+  ai_selection:
+    owner: ai
+    closed_scope: true
+  rules_text: |-
+    受困斥候事件的剧情、选项、转折和奖惩规则……</code></pre></div>
+        <p><code>rules_text</code>继续使用自然语言，负责剧情转折、选项和复杂后果；程序不得读取它决定调度或资产。这样只把需要程序读取的事件层结构化，通用引擎、世界规则和叙事原则仍保留更适合AI理解的自然语言。</p>
+        <h3>新一轮事件的低成本硬过滤</h3>
+        <ol>
+          <li>先用current_round确定P1–P5。</li>
+          <li>直接读取每个事件的schedule，过滤阶段不匹配、轮数不在范围以及已经完成的事件。</li>
+          <li>第1、4、8、12、17轮分别只装载固定M01–M05；第24轮M06未完成时只装载M06。</li>
+          <li>普通轮装载当前阶段的全部随机事件、隐藏事件，以及处于窗口中的M06。</li>
+          <li>PLAN/HINT、局内道具、路线分、NPC关系、场景细节和叙事适配仍由AI读取完整状态和事件正文判断，程序不重复实现。</li>
+        </ol>
+        <div class="callout warn"><strong>保守过滤原则</strong>程序只删除“必定不可能”的事件。全局短提纲始终提供M01–M06与H01–H07的一句话方向，使AI仍能铺垫未来；短提纲不授予当前轮生成未装载事件的权限。</div>
+        <h3>角色与场景如何跟随事件裁剪</h3>
+        <p>每个事件在<code>asset_scope</code>中显式给出角色和场景范围。core是事件可以依赖的核心资产；possible是AI可以结合队伍、状态、当前位置和近期重复情况选择的变化池，不要求全部使用。rules_text可以提到不在场的已知角色或地点作为背景信息，但只有本事件asset_scope中的本地角色才能现身、发言、行动或参战，只有其中场景才能成为目标地点。</p>
+        <ol>
+          <li>对本次<code>included_event_ids</code>逐项读取roles.core、roles.possible、scenes.core和scenes.possible并取传输并集。</li>
+          <li>额外装载<code>current_scene_id</code>对应场景，只用于开场位置和迁移连续性；它不会自动进入任一事件的目标场景范围。</li>
+          <li>程序按role_id和scene_id直接取得原始资产块，不根据名称、轮数、权重或正文做二次推断。</li>
+          <li>AI选定event_id后回到该事件自己的asset_scope；其它候选事件带来的资产即使已在传输并集中，也不得借用。</li>
+          <li><code>current_team</code>不参与裁剪，仍从runtime完整发送。跨世界或未归属世界的上阵角色因此始终可以参与对话与检定。</li>
+        </ol>
+        <div class="callout"><strong>随机性仍由AI承担</strong>possible池为同一事件准备多个合法角色和场景。AI可以根据current_team、story_state、run_archetype、词缀和近期重复情况选择不同组合；程序只装载与校验范围，不替AI决定具体组合。</div>
+        <div class="callout danger"><strong>结构或资产错误必须失败关闭</strong>事件定义缺字段、role_id或scene_id不能回指资产表、current_scene_id非法、schedule与固定轮规则冲突，或事件YAML无法生成时，不允许扫描rules_text补救，也不能使用依赖同一坏定义的完整上下文。程序必须停止本次AI请求并记录配置错误。</div>
+        <h3>当前事件如何继续</h3>
+        <p>接受新一轮事件后，程序除现有pending外还要保存<code>active_event_id</code>和该轮完整新事件输出。后续轻量调用同时发送：当前事件完整YAML、该轮新事件输出、锁定选项、完整runtime YAML以及必要的check_result或battle_result。结算完成后清空当前事件原文，只把story_patch合并入story_state。</p>
+        <div class="code-wrap"><button class="copy" data-copy>复制</button><pre><code>const prepared = prepareAdventurePrompt({
+  runtimeYaml,
+  expectedTemplateName: operation.expected_template_name,
+  currentRound: runtime.current_round,
+  completedEvents: runtime.story_state.completed_events,
+  forcedEventId: operation.forced_event_id,
+  currentSceneId: runtime.current_scene_id,
+  activeEventId: pending_interaction?.event_id
+});
+
+sendToModel(prepared.prompt);
+auditLog.context_scope = prepared.contextScope;</code></pre></div>
+        <div class="callout danger"><strong>安全降级边界</strong>候选为空或included_event_ids切片不一致时，程序先依据同一份已验证eventDefinitions重建当前阶段候选；只有重建后结构与引用仍合法、但优化切片无法装配时，才使用<code>composeFullFallbackPrompt</code>。固定事件定义缺失、结构化字段损坏、资产ID失效或active_event_id未知时直接失败关闭，不让AI猜测。</div>
+        <div class="two-col">
+          <div class="card">
+            <b>每次发送</b>
+            <ul class="checklist">
+              <li>完整story_state快照</li>
+              <li>当前队伍、圣物和局内道具</li>
+              <li>当前资源、场景、词缀与奖励状态</li>
+              <li>尚未结束的pending_interaction</li>
+            </ul>
+          </div>
+          <div class="card">
+            <b>不再发送</b>
+            <ul class="checklist">
+              <li>整局全部旁白和对话</li>
+              <li>已经结算事件的完整YAML</li>
+              <li>战斗过程日志</li>
+              <li>只影响战斗的圣物数值</li>
+            </ul>
+          </div>
+        </div>
+        <p>事件尚未结算时，程序保留当前新事件输出、选中选项或检定结果。结算完成后，通过<code>story_patch</code>合并为结构化状态，当前事件原文即可退出后续上下文。跨轮转折主要依靠completed_events的真实outcome、稳定flag、NPC状态、悬念和因果笔记延续。</p>
+        <div class="callout"><strong>固定上限</strong>memory_notes最多24条、unresolved_hooks最多3条、recent_event_ids保留最近5项。程序不需要理解普通笔记语义：超过24条时按最早写入优先裁剪；必须长期保留且参与条件判断的事实应由稳定flag、completed_events或npc_states保存，不能只依赖memory_notes。必要时可额外保留最近1–2轮各100–200字短摘要，但不再发送完整剧情。</div>
+      </section>
+
+      <section id="relics">
+        <h2>圣物输入与事件生效</h2>
+        <p>圣物持有即生效，不需要装备。程序只发送ID和名称，AI不能从名称猜测效果。</p>
+        <div class="code-wrap"><button class="copy" data-copy>复制</button><pre><code>current_package:
+  relics:
+    - id: 10002
+      name: "橡木护符"
+    - id: 10003
+      name: "鸦羽墨囊"</code></pre></div>
+        <div class="cards">
+          <article class="card"><b>ID用于判定</b><p>事件规则按圣物ID判断是否持有。名称只用于玩家可见叙事。</p></article>
+          <article class="card"><b>事件规则定义影响</b><p>只有提示词中明确写明某圣物ID的事件效果，AI才能应用。</p></article>
+          <article class="card"><b>战斗效果隔离</b><p>属性、伤害、控制和战斗触发由战斗程序处理，不进入AI上下文。</p></article>
+        </div>
+        <p>腐化魔王危机配置：10002“橡木护符”可影响森林/沼泽的辨路、腐化植被或生存检定；10003“鸦羽墨囊”可影响普通幽灵、亡灵记忆或尸灯真伪检定。每次只提供一个+2优势，不降低基础难度，也不作用于Boss。</p>
+      </section>
+
+      <section id="gold">
+        <h2>受控金币交易</h2>
+        <p>AI可以决定剧情中是否发生金币交易并提出delta，但不能直接修改账号。程序仍负责白名单、余额、上限、幂等和原子提交。</p>
+        <div class="code-wrap"><button class="copy" data-copy>复制</button><pre><code>summary:
+  - summary: "支付300金币换取黑市账房的钥匙"
+  - type: "player_attr"
+    gold: -300</code></pre></div>
+        <div class="callout warn"><strong>同时满足才允许</strong>事件骨架明确标记gold_allowed、gold_policy.enabled=true、金额存在于对应白名单、未超过单事件上限和余额；正金币还不能超过gain_limit_remaining。</div>
+        <p>具体材料、圣物、因缘和卡牌仍不能由AI用金币自由定价或直接购买。若要做商店，程序必须把商品候选、ID和价格作为权威输入。</p>
+      </section>
+
+      <section id="diamond">
+        <h2>受控钻石交易</h2>
+        <p>钻石沿用金币的输入和结算方式，但属于更高价值货币，因此默认关闭，并增加“玩家明确知情”和“扣款前确认”两道要求。</p>
+        <div class="code-wrap"><button class="copy" data-copy>复制</button><pre><code>diamond: 1260
+diamond_policy:
+  enabled: true
+  allowed_spend_values: [5, 10]
+  allowed_gain_values: []
+  max_spend_per_event: 10
+  max_gain_per_event: 0
+  gain_limit_remaining: 0</code></pre></div>
+        <div class="cards">
+          <article class="card"><b>双重授权</b><p>事件必须写明diamond_allowed，且diamond_policy必须允许对应方向和金额。</p></article>
+          <article class="card"><b>玩家知情</b><p>支出选项必须明确写“消耗N钻石”，不能把金额藏在结算或旁白里。</p></article>
+          <article class="card"><b>程序提交</b><p>AI只提出delta；程序检查余额、白名单、上限、幂等，并在扣款前执行二次确认。</p></article>
+        </div>
+        <div class="code-wrap"><button class="copy" data-copy>复制</button><pre><code>summary:
+  - summary: "消耗5钻石，请看守立即打开账房暗门"
+  - type: "player_attr"
+    diamond: -5</code></pre></div>
+        <div class="callout warn"><strong>高价值货币限制</strong>同一事件不得同时变化金币和钻石；程序拒绝钻石交易后，AI不得拆单、补偿或自动改扣金币。出售永久资源时，商品标识、标准名称、数量和价格必须全部由程序提供。</div>
+        <div class="callout"><strong>腐化魔王危机配置</strong>目前只有R_P3_BLACK_LEDGER允许可选钻石支出，并且与金币支出二选一；当前没有任何事件授权AI发放钻石。仅填写allowed_gain_values不会自动产生钻石奖励，仍需事件明确写出diamond_allowed=gain。</div>
+      </section>
+
+      <section id="resource-names">
+        <h2>奖励触发信号与永久资源名称契约</h2>
+        <p>所有采用该架构的副本统一使用同一套永久资源协议。三个900000号段ID只是程序触发信号，不是玩家物品；真正的永久资源仍以<code>type + id</code>识别，<code>name</code>来自服务器资源表。</p>
+        <div class="cards">
+          <article class="card"><b>AI剧情层</b><p>只描述世界内发生的自然事实，不出现程序、触发、资格、待带出或入账等后台语言。</p></article>
+          <article class="card"><b>协议层</b><p>AI仅在summary机器明细中输出触发ID和count；程序立即拦截，三个ID永不进入背包。</p></article>
+          <article class="card"><b>UI与资产层</b><p>程序抽取具体资源，奖励弹窗直接读取服务器数据；AI文本不决定类型、ID、名称或数量。</p></article>
+        </div>
+        <div class="table-shell">
+          <table>
+            <thead><tr><th>ID</th><th>程序内部标准名</th><th>程序行为</th><th>玩家是否看见</th></tr></thead>
+            <tbody>
+              <tr><td><code>900050</code></td><td>材料奖励触发标记</td><td>按正count执行等量材料抽取。</td><td>内部ID、名称和summary明细均隐藏。</td></tr>
+              <tr><td><code>900060</code></td><td>圣物奖励触发标记</td><td>生成并锁定具体圣物，每局最多一次。</td><td>只看见具体圣物奖励UI。</td></tr>
+              <tr><td><code>900061</code></td><td>因缘奖励触发标记</td><td>生成并锁定具体因缘，每局最多一次。</td><td>只看见具体因缘奖励UI。</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="code-wrap"><button class="copy" data-copy>复制</button><pre><code># AI结算中的机器明细；前端隐藏这一行
+- type: "item"
+  id: 900061
+  count: 1
+
+# 程序拦截后生成并在独立UI展示
+reward_state:
+  revealed_pending_rewards:
+    - claim_id: "run_123_fate_1"
+      type: "fate"
+      id: 22017
+      name: "服务器资源表中的标准因缘名"
+      count: 1
+      status: "pending"</code></pre></div>
+        <div class="callout"><strong>同一奖励跨阶段不改名</strong>同一<code>type + id</code>从<code>revealed_pending_rewards</code>转入<code>granted_permanent_rewards</code>时，<code>name</code>必须逐字一致。若冲突，程序在调用AI前修正，不能让AI猜测。</div>
+        <div class="callout warn"><strong>名称缺失时</strong>程序应拒绝奖励数据并补齐资源表。若兼容期仍需继续剧情，AI只描述世界内变化并完全不命名奖励；禁止说“一项待带出的因缘”“一件已确认的圣物”等系统泛称。</div>
+        <div class="callout danger"><strong>玩家可见文本禁用词</strong>narration、speech、option text、检定analysis、summary首项和终章不得出现三个触发ID或内部名称，也不得出现“程序确认、触发标记、奖励资格、待带出、尚未归档、已入账、结算成功”等后台措辞。</div>
+      </section>
+
+      <section id="output-fields">
+        <h2>程序需要解析的AI输出字段</h2>
+        <p>五种模板的根结构保持不变。程序先按<code>event_details.template_name</code>选择对应schema，再校验字段；不要用叙事文本反推业务状态。为支持流式展示，字段顺序必须与模板一致，可见字符串必须使用单行双引号标量，但这些序列化约束不改变任何字段的类型或业务含义。</p>
+        <div class="table-shell">
+          <table>
+            <thead><tr><th>输出路径</th><th>出现模板</th><th>类型</th><th>规则</th></tr></thead>
+            <tbody>
+              <tr><td><code>event_details.template_name</code></td><td>全部</td><td>enum</td><td>新一轮事件、战斗事件、检定、结算、终章；必须等于operation.expected_template_name。</td></tr>
+              <tr><td><code>event_details.event_id</code></td><td>新一轮事件、结算</td><td>string</td><td>新事件使用稳定ID；结算必须与pending_interaction完全一致。</td></tr>
+              <tr><td><code>current_round / supply_value / corruption_value</code></td><td>新事件、战斗、结算</td><td>integer</td><td>复制本次输入绝对值，不包含本次summary尚未提交的delta；current_round≥1，supply与corruption均为0–100。</td></tr>
+              <tr><td><code>current_theme / current_type / scene_name</code></td><td>新事件、战斗、结算</td><td>string</td><td>玩家可见描述。新事件scene_name是待提交目标场景；战斗与结算必须等于pending锁定scene_name。</td></tr>
+              <tr><td><code>event_details.steps[]</code></td><td>新事件、战斗、结算</td><td>array&lt;object&gt;</td><td>每项只能是narration，或dialogues数组；dialogues中的npc与speech均为string。</td></tr>
+              <tr><td><code>event_details.options[]</code></td><td>新一轮事件</td><td>array&lt;object&gt;</td><td>主线按事件表数量；随机/断点2–3项；至少一项available=true。</td></tr>
+              <tr><td><code>event_details.options[].id</code></td><td>新一轮事件</td><td>integer</td><td>正整数且同一事件内唯一；0只用于无玩家选项的系统结算selected_option_id。</td></tr>
+              <tr><td><code>event_details.options[].text</code></td><td>新一轮事件</td><td>string</td><td>检定后缀按规则展示；钻石支出必须明确币种和金额。</td></tr>
+              <tr><td><code>event_details.options[].template_name</code></td><td>新一轮事件</td><td>enum</td><td>战斗事件、检定、结算。</td></tr>
+              <tr><td><code>event_details.options[].visible / available</code></td><td>新一轮事件</td><td>boolean</td><td>visible=false时前端隐藏；available=false时不可选择。</td></tr>
+              <tr><td><code>event_details.options[].check_type / check_difficulty</code></td><td>检定选项</td><td>enum / integer</td><td>常规检定或隐藏检定；难度0–20且已包含档位修正。</td></tr>
+              <tr><td><code>combat_start</code></td><td>战斗事件</td><td>boolean</td><td>固定true。</td></tr>
+              <tr><td><code>enemies[].name</code></td><td>战斗事件</td><td>string</td><td>总数1–4；精确匹配角色表敌人名；不得与current_team.name重名。</td></tr>
+              <tr><td><code>event_details.analysis</code></td><td>检定</td><td>string</td><td>只写世界内判定依据，不暴露骰点、公式或内部总分。</td></tr>
+              <tr><td><code>event_details.result</code></td><td>检定</td><td>enum</td><td>大成功、成功、失败；程序原样缓存为operation.check_result。</td></tr>
+              <tr><td><code>event_details.summary[]</code></td><td>结算</td><td>array&lt;object&gt;</td><td>第一项只含自然世界结果，不得朗读内部触发名称；后续项只含实际非零机器变化。</td></tr>
+              <tr><td><code>event_details.summary[].type</code></td><td>结算变化项</td><td>enum</td><td>item或player_attr。</td></tr>
+              <tr><td><code>event_details.summary[].id / count</code></td><td>item变化项</td><td>integer</td><td>id仅900000号段；count正数为获得、负数为消耗，不输出0。900050/60/61只允许正数并由程序立即拦截。</td></tr>
+              <tr><td><code>event_details.summary[].corruption / supply / gold / diamond</code></td><td>player_attr变化项</td><td>integer</td><td>均为非零delta；键顺序固定为type、corruption、supply、gold、diamond，没有变化的键按原顺序省略。货币还需通过事件与policy校验。</td></tr>
+              <tr><td><code>event_details.story_patch.completed_event_id</code></td><td>结算</td><td>string</td><td>等于event_details.event_id。</td></tr>
+              <tr><td><code>event_details.story_patch.selected_option_id</code></td><td>结算</td><td>integer</td><td>玩家实际选项；无玩家选项的系统结算为0。</td></tr>
+              <tr><td><code>event_details.story_patch.outcome</code></td><td>结算</td><td>enum</td><td>七个合法值及映射见“完整枚举与值域”。</td></tr>
+              <tr><td><code>event_details.story_patch.run_archetype</code></td><td>结算</td><td>enum</td><td>逐字复制程序开局已确定的当前绝对配置；不得改变。</td></tr>
+              <tr><td><code>event_details.story_patch.run_modifier_ids[]</code></td><td>结算</td><td>array&lt;enum&gt;</td><td>当前绝对配置；固定2项且不同互斥组。</td></tr>
+              <tr><td><code>event_details.story_patch.add_flags[] / remove_flags[]</code></td><td>结算</td><td>array&lt;string&gt;</td><td>稳定大写flag；同一flag不得同时添加和移除。</td></tr>
+              <tr><td><code>event_details.story_patch.route_delta</code></td><td>结算</td><td>object</td><td>固定包含combat、scheme、cleanse三个整数；这是本次增量。</td></tr>
+              <tr><td><code>event_details.story_patch.npc_state_updates[]</code></td><td>结算</td><td>array&lt;object&gt;</td><td>每项npc+state；仅输出本次真实改变，同一NPC每次最多一项。</td></tr>
+              <tr><td><code>event_details.story_patch.memory_notes[]</code></td><td>结算</td><td>array&lt;string&gt;</td><td>每次0–3条精简因果事实；优先记录后续能生效的准备、损失、承诺或误判。</td></tr>
+              <tr><td><code>event_details.story_patch.unresolved_hooks_added[] / unresolved_hooks_resolved[]</code></td><td>结算</td><td>array&lt;string&gt;</td><td>added最多1条；resolved必须已存在于当前story_state。</td></tr>
+              <tr><td><code>event_details.final_chapter</code></td><td>结算</td><td>boolean</td><td>AI终局提案：普通及可推进失败为false；明确通关、T4失败、计入本次delta后的硬阈值或目标不可达时true。程序按终局白名单和未钳制资源最终裁决。</td></tr>
+              <tr><td><code>event_details.content</code></td><td>终章</td><td>string</td><td>只能叙述程序确认的结局和granted_permanent_rewards。</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section id="response">
+        <h2>AI如何把状态交还程序</h2>
+        <p>“新一轮事件”包含稳定<code>event_id</code>；“结算”包含同一event_id及固定结构的<code>story_patch</code>。输出协议只有五种模板。</p>
+        <div class="code-wrap"><button class="copy" data-copy>复制</button><pre><code>event_details:
+  template_name: "结算"
+  event_id: "M01"
+  current_round: 1
+  supply_value: 100
+  corruption_value: 10
+  current_theme: "危机暂歇"
+  current_type: "主线事件结算"
+  scene_name: "艾德村庄"
+  steps: []
+  summary:
+    - summary: "无物品或数值变化"
+  story_patch:
+    completed_event_id: "M01"
+    selected_option_id: 2
+    outcome: "success"
+    run_archetype: "corruption_hunt"
+    run_modifier_ids: ["MOD_GHOST_TIDE", "MOD_FRACTURED_TRUST"]
+    add_flags: ["M01_SCHEME"]
+    remove_flags: []
+    route_delta:
+      combat: 0
+      scheme: 1
+      cleanse: 0
+    npc_state_updates:
+      - npc: "村长艾德"
+        state: "trusted"
+    memory_notes:
+      - "队伍保住粮仓，村长艾德愿意提供旧路情报"
+    unresolved_hooks_added:
+      - "驱赶史莱姆的幕后力量仍未现身"
+    unresolved_hooks_resolved: []
+  final_chapter: false</code></pre></div>
+
+        <details open><summary>新一轮事件提交规则</summary><div>
+          <ol>
+            <li>验证request_id未提交、state_version仍匹配，template_name为新一轮事件。</li>
+            <li>验证event_id属于副本白名单，满足阶段、前置、完成状态和候选/强制约束。</li>
+            <li>把scene_name映射为target_scene_id，验证同场景、连接白名单或固定主线授权。</li>
+            <li>验证全部选项字段、可见性、可用性、检定最终难度，以及至少一项available=true。</li>
+            <li>创建pending_interaction并锁定event_id、场景和完整事件输出；原子更新current_scene_id、visited_scene_ids并把state_version加1。</li>
+            <li>只有上述步骤全部成功才缓存为逻辑request的有效响应、把此前provisional剧情确认为最终内容并向玩家开放选项；完整校验前只能按流式协议展示临时剧情。</li>
+          </ol>
+        </div></details>
+
+        <details open><summary>story_patch合并规则</summary><div>
+          <ol>
+            <li>验证<code>completed_event_id</code>等于当前pending event_id。</li>
+            <li>验证request_id未提交过，且state_version仍是请求对应版本。</li>
+            <li>将completed event追加到completed_events，拒绝重复。</li>
+            <li>先应用remove_flags，再添加add_flags；同一flag不得同时出现。</li>
+            <li>累加route_delta，结果不得小于0。</li>
+            <li>按npc名称覆盖或新增npc state。</li>
+            <li>追加memory_notes并按上限裁剪；添加和解决unresolved hooks。</li>
+            <li>保存run_archetype和两个run_modifier_ids；已固定后拒绝变更。</li>
+            <li>验证summary后计算未钳制资源结果；先判断supply≤0、corruption≥100硬失败，再把两者钳制到0–100；同时独立处理局内道具及受控gold/diamond。</li>
+            <li>依据event_id、outcome、成功/失败flag、硬阈值、team_status与终局白名单设置run_status。final_chapter只是AI提案：硬阈值可以把false覆盖为failed；普通defeat不能仅凭true绕过白名单。</li>
+            <li>原子提交全部变化、清空pending并把state_version加1；任一校验失败则全部不提交。</li>
+          </ol>
+        </div></details>
+      </section>
+
+      <section id="migration">
+        <h2>现有输入的迁移方式</h2>
+        <div class="table-shell">
+          <table>
+            <thead><tr><th>现有字段</th><th>处理方式</th><th>新结构</th></tr></thead>
+            <tbody>
+              <tr><td><code>current_package.relics</code></td><td>保留；补齐每项id和name。</td><td>仍为current_package.relics。</td></tr>
+              <tr><td><code>current_package.tools</code></td><td>保留；统一每项id、name、count。</td><td>仍为current_package.tools。</td></tr>
+              <tr><td><code>current_team</code></td><td>保留；补充card_id、职业、种族、性格和attributes。</td><td>current_team[]完整对象。</td></tr>
+              <tr><td><code>current_round</code></td><td>保留；明确为程序已提交绝对值。</td><td>current_round。</td></tr>
+              <tr><td><code>corruption_value / supply_value</code></td><td>保留；基础消耗改由程序在next_round前执行。</td><td>同名绝对值。</td></tr>
+              <tr><td><code>gold</code></td><td>保留；新增gold_policy控制AI能否提出delta。</td><td>gold + gold_policy。</td></tr>
+              <tr><td><code>diamond</code></td><td>新增；作为账号绝对余额输入。</td><td>diamond + diamond_policy；建议默认enabled=false。</td></tr>
+              <tr><td><code>done_events</code></td><td><span class="deprecated">弃用</span> 信息不足。</td><td>story_state.completed_events，记录选项和结果。</td></tr>
+              <tr><td><code>done_scenes</code></td><td><span class="deprecated">弃用</span> “完成”语义不清。</td><td>current_scene_id + visited_scene_ids。</td></tr>
+              <tr><td><code>done_npcs</code></td><td><span class="deprecated">弃用</span> 无法表达信任或敌对。</td><td>story_state.npc_states。</td></tr>
+              <tr><td>完整历史剧情</td><td><span class="deprecated">停止每轮发送</span></td><td>story_state + 当前pending interaction + 少量短摘要。</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section id="validation">
+        <h2>程序调用前后校验</h2>
+        <div class="two-col">
+          <div class="card"><b>调用AI前</b><ul class="checklist">
+            <li>operation符合当前阶段</li>
+            <li>expected_template_name已映射到正确上下文模式和唯一引擎模板</li>
+            <li>event_generation的included_event_ids均通过阶段、轮数和completed_events硬过滤；固定主线轮只装载固定事件</li>
+            <li>event_generation的角色/场景白名单由候选事件asset_scope的core/possible并集和current_scene_id生成，所有ID都能回指原始资产表</li>
+            <li>每个候选事件的schedule、asset_scope和ai_selection字段完整；事件定义schema_version等于dungeon-event-yaml-v1</li>
+            <li>active_event的active_event_id逐字等于pending.event_id，且当前事件原始规则与新事件输出都已装载</li>
+            <li>若runtime提供event_candidates，其ID集合不得超出本次included_event_ids</li>
+            <li>request_id与state_version有效</li>
+            <li>next_round已推进回合和基础消耗</li>
+            <li>start未扣基础消耗，run_archetype与2个不同组词缀已经按seed固化</li>
+            <li>顶层与story_state.current_scene_id一致；pending存在时二者等于pending.scene_id</li>
+            <li>选择存在且available=true</li>
+            <li>队伍1–4人且属性值合法</li>
+            <li>圣物和局内道具来自服务器</li>
+            <li>operation、模板、检定、战斗、outcome、NPC状态等枚举均在白名单内</li>
+            <li>gold与diamond为非负绝对余额，各policy字段完整且金额非负</li>
+            <li>永久奖励type、id、name、count均来自服务器，且type与id匹配</li>
+            <li>相同type+id在pending与granted阶段的name逐字一致</li>
+          </ul></div>
+          <div class="card"><b>收到AI输出后</b><ul class="checklist">
+            <li>前端rawYaml与AI连接收到的完整正文逐字一致，且没有重复或缺失片段</li>
+            <li>字段顺序符合当前模板；可见字符串是单行双引号标量，没有块标量、锚点、别名或标签</li>
+            <li>流式阶段只发送白名单可见字段；options、result、enemies、summary、story_patch和final_chapter没有提前解锁业务</li>
+            <li>template_name等于expected值</li>
+            <li>新事件event_id属于本次included_event_ids；active_event输出没有引用其它事件的选项或后果</li>
+            <li>新事件中的本地NPC、敌人和目标场景属于所选事件自身asset_scope，而不只是本次所有候选的传输并集；current_team成员除外</li>
+            <li>YAML字段、类型和枚举合法</li>
+            <li>event_id与pending interaction一致</li>
+            <li>新事件目标场景映射和连接合法；战斗/结算场景等于pending锁定场景</li>
+            <li>敌人1–4名、来自事件合法战斗池且不与队员重名</li>
+            <li>summary变化在允许范围</li>
+            <li>900050/60/61明细已拦截且不会进入current_package.tools或通用掉落列表</li>
+            <li>三个触发ID和内部名称不会发送到玩家可见UI</li>
+            <li>outcome与check_result或battle_result严格一一对应</li>
+            <li>defeat/retreat且final_chapter=false时不会把run_status自动设为failed</li>
+            <li>final_chapter=true只出现在终局白名单、资源阈值、全灭或目标已不可达</li>
+            <li>summary delta后的未钳制资源已检查硬阈值，提交值已钳制到0–100</li>
+            <li>story_patch中的主压力和词缀逐字等于开局配置；hooks达到3条时没有无条件新增</li>
+            <li>gold/diamond仅在事件与policy双重授权下出现，且同一事件不同时变化</li>
+            <li>钻石支出对应的玩家选项已明确展示币种与金额</li>
+            <li>story_patch通过幂等校验后只提交一次</li>
+            <li>前端不从AI文本解析永久奖励名称或入账数量</li>
+          </ul></div>
+        </div>
+        <details open><summary>错误响应、修复与幂等</summary><div>
+          <ol>
+            <li><code>operation.request_id</code>是逻辑状态迁移ID；模型供应商的每次实际调用另用程序内部<code>attempt_id</code>，不发送给AI，也不写入五模板。</li>
+            <li>只有通过YAML、schema、枚举、引用、资源与状态机全部校验的响应，才能成为request_id的最终幂等缓存。非法原始响应可留审计日志，但不得作为业务回放结果。</li>
+            <li>AI连接超时或断流且前端尚未取得完整响应时，可用同一逻辑request和同一状态/种子重试；一旦前端已有校验通过的最终缓存，所有重试直接回放。</li>
+            <li>纯格式修复必须锁定原响应的event_id、选项、检定result、战斗result、summary数值、奖励触发与story_patch语义，只修YAML引号、缩进、字段位置或枚举拼写。</li>
+            <li>新事件尚未在前端展示任何provisional字段，且出现包外event_id、非法场景、非法敌人、无可用选项等语义错误时，允许最多一次受控再生成；状态、request_id、seed和候选完全不变。仍失败则由程序返回维护提示，不要求AI发明第六模板。</li>
+            <li>已经发送provisional字段后，格式修复或受控重试必须逐字冻结这些可见字段；如果错误本身涉及已显示的非法事件、场景、角色或结果语义，则不能静默换文，必须终止本次展示并返回统一失败提示。</li>
+            <li>检定结果、战斗结果、货币变化、永久奖励触发或已经最终提交的事件不能通过再请求改变。语义修复需要把这些业务值作为冻结约束。</li>
+          </ol>
+        </div></details>
+        <div class="callout danger"><strong>缓存边界</strong>“同一request_id直接回放缓存”只指已经通过全部校验的最终响应；绝不能把格式非法或业务非法的第一次输出固化成永久坏缓存。</div>
+      </section>
+
+      <section id="integration">
+        <h2>推荐接入顺序</h2>
+        <ol>
+          <li>把manifest、三个包、结构化事件定义文件、上下文装配入口与完整组合降级资产作为同一发布物；启动时校验兼容ID与全部哈希，并缓存eventDefinitions及ID资产索引。</li>
+          <li>创建run时固定引擎、世界规则与副本运行包版本、run_seed、run_difficulty；按副本公式确定run_archetype与2个run_modifier_ids，写入初始story_state；之后禁止静默换包或重算配置。</li>
+          <li>每次调用通过<code>prepareAdventurePrompt</code>按expected模板选择上下文；世界包与runtime保持完整，runtime始终最后追加；读取入口导出的<code>streamingDisplayContract</code>初始化前端提取白名单。</li>
+          <li>start/next_round直接读取eventDefinitions.schedule过滤事件，再合并各事件asset_scope和current_scene_id生成传输白名单；choose/settle_check/battle_result改用active_event_id只装载当前事件YAML。</li>
+          <li>按operation表校验必填字段和expected_template_name；冻结request快照后立即调用AI，与前端本地反馈动画并行。</li>
+          <li>前端直接累积AI原始YAML流，并仅显示通过header gate和字段白名单的provisional纯文本；同request_id只接受已经通过完整校验的最终结果。</li>
+          <li>新事件先验证完整YAML、字段顺序、event_id、目标场景、连接、选项和候选，再原子创建pending、提交场景并开放选项；战斗/检定/结算沿用锁定场景。</li>
+          <li>结算时验证模板枚举、敌人数、资源范围、pending关联和终局白名单；按未钳制资源判断硬阈值并钳制后，以state_version做CAS原子提交。</li>
+          <li>结算时把story_patch合并为story_state，而不是累积发送历次story_patch；随后清空active_event原文，只在未结算交互中保留当前事件必要输出。</li>
+          <li>收到900050/900060/900061立即拦截、生成具体资源并弹窗；下一请求再将标准资源名放入revealed_pending_rewards。</li>
+          <li>终局先完成程序奖励落库并生成granted_permanent_rewards，再调用finale让AI写自然终章。</li>
+        </ol>
+        <div class="callout danger"><strong>不能依赖AI自证</strong>包版本、哈希、余额、战斗结果、奖励抽取、永久资源落库、幂等和终局白名单始终由程序校验。AI输出合法YAML也不等于可以直接入库。</div>
+      </section>
+
+      <footer>腐化魔王危机 · 结构化事件与前端直连语义分片协议 · 文档版本 2026.09.04.1</footer>
+    </main>
+  </div>
+
+  <script>
+    const search = document.getElementById('fieldSearch');
+    const rows = [...document.querySelectorAll('#fieldTable tbody tr')];
+    search?.addEventListener('input', () => {
+      const q = search.value.trim().toLowerCase();
+      rows.forEach(row => row.hidden = q && !row.textContent.toLowerCase().includes(q));
+    });
+
+    document.querySelectorAll('[data-copy]').forEach(button => {
+      button.addEventListener('click', async () => {
+        const text = button.parentElement.querySelector('code').innerText;
+        try {
+          await navigator.clipboard.writeText(text);
+          button.textContent = '已复制';
+          setTimeout(() => button.textContent = '复制', 1200);
+        } catch {
+          button.textContent = '请手动复制';
+        }
+      });
+    });
+
+    const links = [...document.querySelectorAll('#nav a')];
+    const sections = links.map(a => document.querySelector(a.getAttribute('href'))).filter(Boolean);
+    const observer = new IntersectionObserver(entries => {
+      const visible = entries.filter(e => e.isIntersecting).sort((a, b) => b.intersectionRatio - a.intersectionRatio)[0];
+      if (!visible) return;
+      links.forEach(a => a.classList.toggle('active', a.getAttribute('href') === '#' + visible.target.id));
+    }, { rootMargin: '-15% 0px -70% 0px', threshold: [0, .2, .5] });
+    sections.forEach(section => observer.observe(section));
+  </script>
+</body>
+</html>

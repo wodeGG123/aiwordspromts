@@ -1,0 +1,13 @@
+{
+  "mode": "active_event",
+  "expectedTemplateName": "结算",
+  "stage": null,
+  "includedEventIds": [
+    "M06"
+  ],
+  "includedRoleIds": [],
+  "includedRoleNames": [],
+  "includedSceneIds": [],
+  "includedSceneNames": [],
+  "activeEventId": "M06"
+}

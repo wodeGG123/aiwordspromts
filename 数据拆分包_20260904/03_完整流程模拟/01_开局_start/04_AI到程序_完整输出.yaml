@@ -1,0 +1,45 @@
+event_details:
+  template_name: "新一轮事件"
+  event_id: "M01"
+  current_round: 1
+  supply_value: 100
+  corruption_value: 10
+  current_theme: "边境求援"
+  current_type: "主线事件"
+  scene_name: "艾德村庄"
+  steps:
+    - narration: "傍晚的雨水沿着艾德村庄的石墙往下淌，泥路上却浮着一层不随水流散去的黏液。粮仓方向传来木板接连折断的闷响，腥甜气味里混着被腐蚀的谷物焦味。"
+    - dialogues:
+      - npc: "村长艾德"
+        speech: "猎魔人，粮仓里还有人！那些东西今天第三次从井沟里爬出来了！"
+    - narration: "你们越过翻倒的推车，看见四只史莱姆挤在粮仓门前。它们没有扑向最近的活人，反而一遍遍撞击储粮间的同一面墙，仿佛墙后有什么东西正召唤它们。"
+    - dialogues:
+      - npc: "星穹法师"
+        speech: "它们在听命行事。看黏液里的黑纹，每次撞墙都会亮一次。"
+      - npc: "熔岩矮人王"
+        speech: "先把人和怪物隔开。至于墙后的东西，等这里不再尖叫时再问。"
+    - narration: "一只史莱姆忽然从门楣上坠下，封住村民撤离的窄巷；另外三只同时朝村外森林偏转。旧货车、排水沟和异常黑纹都可能改变局势。"
+    - dialogues:
+      - npc: "村长艾德"
+        speech: "那面墙后只有去年的旧井图……如果它们真在找什么，村子恐怕早就被盯上了。"
+    - narration: "粮仓横梁再次开裂。你们只有片刻决定，是迎面挡住怪物、利用狭巷限制它们，还是先辨认黑纹背后的力量。"
+  options:
+    - text: "迎着黏液潮挡在村民身前"
+      id: 1
+      template_name: "战斗事件"
+      visible: true
+      available: true
+    - text: "推倒旧货车封住狭巷（智力检定）"
+      id: 2
+      template_name: "检定"
+      visible: true
+      available: true
+      check_type: "常规检定"
+      check_difficulty: 12
+    - text: "俯身观察黏液中的黑纹（隐藏检定）"
+      id: 3
+      template_name: "检定"
+      visible: true
+      available: true
+      check_type: "隐藏检定"
+      check_difficulty: 13

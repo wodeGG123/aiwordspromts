@@ -1,0 +1,24 @@
+event_details:
+  template_name: "战斗事件"
+  current_round: 24
+  supply_value: 70
+  corruption_value: 25
+  current_theme: "撕开王座前的黑潮"
+  current_type: "战斗"
+  scene_name: "魔王大厅"
+  steps:
+    - narration: "熔岩矮人王率先撞上侍卫盾墙，冲击沿黑石地面震开一圈暗红裂纹。冰原战士没有追逐被撞退的敌人，而是转身守住圣路最后的亮处，让黑潮无法从背后合围。"
+    - dialogues:
+      - npc: "花岗岩像鬼"
+        speech: "地缝里的力量正在改道。再给我片刻，我能让王座失去一侧回流。"
+    - narration: "星穹法师沿着账本日期与地面亮纹的相同节奏标出缺口。魔王从王座上起身，三名侍卫随之改变阵形；被你们保全的证据第一次不再只是线索，而成为逼迫敌人暴露节奏的武器。"
+    - dialogues:
+      - npc: "魔王"
+        speech: "你们终于学会利用过去。可惜，这里的每一块石头都记得你们曾经犹豫。"
+    - narration: "盾墙在王座左侧露出狭窄缝隙，黑潮却从右侧卷向队伍。四个敌人同时压上，战斗在圣路熄灭前全面爆发。"
+combat_start: true
+enemies:
+  - name: "魔王"
+  - name: "魔王侍卫盾"
+  - name: "魔王侍卫剑"
+  - name: "魔王侍卫牧师"

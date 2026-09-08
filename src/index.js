@@ -1,272 +1,55 @@
 import "dotenv/config";
-import OpenAI from "openai";
 import http from "http";
-import { fileURLToPath } from "url";
-import { dirname } from "path";
+import { loadConfig } from "./server/config.mjs";
+import { createApp } from "./server/routes.mjs";
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
-
-const PORT = process.env.PORT || 3000;
-const AI_BASE_URL =
-  process.env.AI_BASE_URL || "https://ark.cn-beijing.volces.com/api/v3";
-const AI_API_KEY =
-  process.env.AI_API_KEY || "a5cccc9b-116e-40e1-9009-0c0f8fe56eb8";
-const AI_MODEL = process.env.AI_MODEL || "deepseek-v4-flash-ga-260731";
-const ENABLE_PROMPT_FILTER = process.env.ENABLE_PROMPT_FILTER === "true";
-const PROMPT_BLACKLIST = (process.env.PROMPT_BLACKLIST || "")
-  .split(",")
-  .filter(Boolean);
-
-// 初始化 OpenAI 客户端
-const openai = new OpenAI({
-  apiKey: AI_API_KEY,
-  baseURL: AI_BASE_URL,
-});
-
-// 内容已屏蔽标记
-const FILTERED_MARKER = "[内容已屏蔽]";
-
-/**
- * 根据 type 获取对应的提示词模块
- * @param {string} type - 提示词类型
- * @returns {Promise<string>} - 返回提示词内容
- */
-async function getSystemPrompt(type) {
-  if (!type || type === "adventure_story") {
-    const { default: prompt } = await import("./adventure_story_prompt.js");
-    return prompt;
-  }
-
-  const promptPath = `./${type}.js`;
-  try {
-    const { default: prompt } = await import(promptPath);
-    return prompt;
-  } catch (error) {
-    console.warn(`未找到提示词文件: ${promptPath}，使用默认提示词`);
-    const { default: defaultPrompt } =
-      await import("./adventure_story_prompt.js");
-    return defaultPrompt;
-  }
+let config;
+try {
+  config = loadConfig();
+} catch (error) {
+  console.error(`[config] ${error.message}`);
+  process.exit(1);
 }
 
-/**
- * 检查文本是否包含黑名单词汇
- * @param {string} text - 要检查的文本
- * @returns {boolean} - 是否包含敏感词
- */
-function containsBlacklistWords(text) {
-  if (!text) return false;
-  const lowerText = text.toLowerCase();
-  return PROMPT_BLACKLIST.some((word) =>
-    lowerText.includes(word.toLowerCase()),
-  );
-}
-
-/**
- * 过滤消息内容，替换敏感词
- * @param {object} message - 消息对象
- * @returns {object} - 过滤后的消息
- */
-function filterMessageContent(message) {
-  if (!message || message.role !== "user") {
-    return message;
-  }
-
-  if (!message.content || typeof message.content !== "string") {
-    return message;
-  }
-
-  if (containsBlacklistWords(message.content)) {
-    return {
-      ...message,
-      content: FILTERED_MARKER,
-    };
-  }
-
-  return message;
-}
-
-/**
- * 过滤请求消息列表
- * @param {Array} messages - 消息数组
- * @returns {Array} - 过滤后的消息数组
- */
-function filterMessages(messages) {
-  if (!Array.isArray(messages)) {
-    return messages;
-  }
-
-  return messages.map((msg) => filterMessageContent(msg));
-}
-
-/**
- * 处理聊天请求
- */
-async function handleChat(req, res) {
-  let body = "";
-
-  req.on("data", (chunk) => {
-    body += chunk;
-  });
-
-  req.on("end", async () => {
-    try {
-      const requestData = JSON.parse(body);
-
-      // 获取模型名称（如果未指定，使用配置的默认模型）
-      const model = requestData.model || AI_MODEL;
-
-      // 获取提示词类型，默认为 adventure_story
-      const promptType = requestData.type || "adventure_story";
-
-      // 过滤提示词
-      let filteredData = requestData;
-      if (ENABLE_PROMPT_FILTER && requestData.messages) {
-        filteredData = {
-          ...requestData,
-          messages: filterMessages(requestData.messages),
-        };
-
-        // 检查是否有内容被过滤
-        const hasFiltered = filteredData.messages.some(
-          (msg, idx) =>
-            msg.content === FILTERED_MARKER &&
-            requestData.messages[idx]?.content !== FILTERED_MARKER,
-        );
-
-        if (hasFiltered) {
-          console.log(`[${new Date().toISOString()}] 提示词已屏蔽`);
-        }
-      }
-
-      // 根据 type 获取对应的系统提示词
-      const systemPrompt = await getSystemPrompt(promptType);
-
-      // 将系统提示词添加到 messages 最前面
-      const messagesWithSystem = [
-        {
-          role: "system",
-          content: systemPrompt,
-        },
-        ...filteredData.messages,
-      ];
-
-      // 使用 OpenAI SDK 调用 AI 后端
-      const response = await openai.chat.completions.create({
-        model: model,
-        messages: messagesWithSystem,
-      });
-
-      // 返回响应给客户端
-      res.writeHead(200, {
-        "Content-Type": "application/json",
-        "Access-Control-Allow-Origin": "*",
-        "Access-Control-Allow-Methods": "POST, GET, OPTIONS",
-        "Access-Control-Allow-Headers": "Content-Type, Authorization",
-      });
-      res.end(JSON.stringify(response));
-    } catch (error) {
-      console.error(
-        `[${new Date().toISOString()}] 处理请求失败:`,
-        error.message,
-      );
-
-      res.writeHead(500, { "Content-Type": "application/json" });
-      res.end(
-        JSON.stringify({
-          error: {
-            message: "服务器处理请求失败",
-            type: "server_error",
-          },
-        }),
-      );
+const app = createApp({ config });
+const server = http.createServer((req, res) => {
+  app(req, res).catch(error => {
+    console.error(`[server] ${error.message}`);
+    if (!res.headersSent) {
+      res.writeHead(500, { "Content-Type": "application/json; charset=utf-8" });
+      res.end(JSON.stringify({ error: { code: "INTERNAL_ERROR", message: "服务器内部错误", type: "server_error" } }));
+    } else if (!res.writableEnded) {
+      res.end();
     }
   });
-}
+});
 
-/**
- * 处理 OPTIONS 预检请求
- */
-function handleCors(res) {
-  res.writeHead(200, {
-    "Access-Control-Allow-Origin": "*",
-    "Access-Control-Allow-Methods": "POST, GET, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type, Authorization",
+let shuttingDown = false;
+function shutdown(signal) {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  console.log(`[server] shutting down (${signal})`);
+  server.close(error => {
+    if (error) {
+      console.error(`[server] shutdown failed: ${error.message}`);
+      process.exitCode = 1;
+    }
+    process.exit();
   });
-  res.end();
 }
 
-/**
- * 健康检查
- */
-function handleHealth(res) {
-  res.writeHead(200, { "Content-Type": "application/json" });
-  res.end(
-    JSON.stringify({
-      status: "ok",
-      timestamp: new Date().toISOString(),
-      promptFilter: {
-        enabled: ENABLE_PROMPT_FILTER,
-        blacklistCount: PROMPT_BLACKLIST.length,
-      },
-    }),
-  );
-}
+process.once("SIGINT", () => shutdown("SIGINT"));
+process.once("SIGTERM", () => shutdown("SIGTERM"));
 
-/**
- * 创建 HTTP 服务器
- */
-const server = http.createServer((req, res) => {
-  const url = new URL(req.url, `http://localhost:${PORT}`);
-
-  // 记录请求
-  console.log(`[${new Date().toISOString()}] ${req.method} ${url.pathname}`);
-
-  // 处理 CORS 预检请求
-  if (req.method === "OPTIONS") {
-    handleCors(res);
-    return;
-  }
-
-  // 路由处理
-  if (url.pathname === "/api/chat" && req.method === "POST") {
-    handleChat(req, res);
-  } else if (url.pathname === "/health" && req.method === "GET") {
-    handleHealth(res);
-  } else {
-    res.writeHead(404, { "Content-Type": "application/json" });
-    res.end(
-      JSON.stringify({
-        error: {
-          message: "未找到请求的端点",
-          type: "not_found",
-        },
-      }),
-    );
-  }
+server.listen(config.port, () => {
+  console.log(`[server] adventure API listening on http://localhost:${config.port}`);
+  console.log(`[server] model=${config.aiModel}`);
+  console.log(`[server] cors=${config.clientOrigins.join(",")}`);
 });
 
-// 启动服务器
-server.listen(PORT, () => {
-  console.log(`\n========================================`);
-  console.log(`  AI 大模型转发服务器已启动`);
-  console.log(`========================================`);
-  console.log(`  端口: ${PORT}`);
-  console.log(`  地址: http://localhost:${PORT}`);
-  console.log(`  提示词过滤: ${ENABLE_PROMPT_FILTER ? "已启用" : "已禁用"}`);
-  if (ENABLE_PROMPT_FILTER) {
-    console.log(`  黑名单词汇: ${PROMPT_BLACKLIST.length} 个`);
-  }
-  console.log(`========================================\n`);
-  console.log(`可用接口:`);
-  console.log(`  POST /api/chat  - 聊天接口`);
-  console.log(`  GET  /health    - 健康检查`);
-  console.log(`\n`);
-});
-
-// 错误处理
-server.on("error", (error) => {
-  console.error(`服务器错误:`, error.message);
+server.on("error", error => {
+  console.error(`[server] ${error.message}`);
   process.exit(1);
 });
+
+export { server };
