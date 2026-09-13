@@ -76,6 +76,19 @@ export function writeSseHeaders(res, config, origin) {
   });
 }
 
+export function writeSseComment(res, comment) {
+  if (!res.writableEnded) res.write(`: ${String(comment)}\n\n`);
+}
+
+export function writeSseEvent(res, event, data = "") {
+  if (res.writableEnded) return;
+  res.write(`event: ${event}\n`);
+  for (const line of String(data).split(/\r?\n/)) {
+    res.write(`data: ${line}\n`);
+  }
+  res.write("\n");
+}
+
 export function writeSseData(res, text) {
   if (res.writableEnded) return;
   for (const line of String(text).split(/\r?\n/)) {
@@ -106,11 +119,14 @@ export function capabilitiesPayload(config) {
     dungeons: [{ id: "dungeon1.corrupted-demon-king.runtime", version: "2026.09.04.1" }],
     templates: TEMPLATES,
     provider_chunk_mode: "delta_text",
+    server_stream_mode: "incremental_passthrough",
+    server_validates_output: false,
     limits: {
       max_runtime_yaml_chars: config.runtimeMaxChars,
       max_request_bytes: config.requestMaxBytes,
       max_output_chars: config.outputMaxChars,
-      max_concurrent_per_ip: config.maxConcurrentPerIp
+      max_concurrent_per_ip: config.maxConcurrentPerIp,
+      sse_heartbeat_ms: config.sseHeartbeatMs
     }
   };
 }

@@ -1,7 +1,7 @@
 import OpenAI from "openai";
 import { preparePromptFromRequest, RuntimeContractError } from "../runtime_contract.mjs";
 import { IdempotencyStore, FixedWindowRateLimiter } from "./idempotency_store.mjs";
-import { createModelService, ModelServiceError } from "./model_service.mjs";
+import { createModelService } from "./model_service.mjs";
 import {
   capabilitiesPayload,
   healthPayload,
@@ -11,7 +11,8 @@ import {
   writeSseData,
   writeSseDone,
   writeSseError,
-  writeSseHeaders
+  writeSseHeaders,
+  writeSseComment
 } from "./http_utils.mjs";
 
 function clientIp(req) {
@@ -22,55 +23,13 @@ function hashRequest(value) {
   return JSON.stringify(value);
 }
 
-function correctionMessages(messages, expectedTemplateName, actualTemplateName) {
-  return Object.freeze([
-    ...messages,
-    Object.freeze({
-      role: "user",
-      content: `【系统纠错】上一次输出的event_details.template_name为“${actualTemplateName ?? "缺失"}”，与本次请求要求的“${expectedTemplateName}”不一致。请完整重生成本次响应，只输出模板“${expectedTemplateName}”，不要解释原因。`
-    })
-  ]);
-}
-
-function templateNameFromPrefix(text) {
-  const match = /(?:^|\n)\s*template_name:\s*"([^"\r\n]+)"\s*(?:\r?\n|$)/.exec(text);
-  return match ? match[1] : undefined;
-}
-
-async function streamVerifiedAttempt({ modelService, messages, expectedTemplateName, signal, onVerifiedDelta }) {
-  let buffered = "";
-  let rawYaml = "";
-  let templateName;
-  let released = false;
-
-  for await (const delta of modelService.stream(messages, { signal })) {
-    rawYaml += delta;
-    if (released) {
-      onVerifiedDelta(delta);
-      continue;
-    }
-
-    buffered += delta;
-    templateName = templateNameFromPrefix(buffered);
-    if (templateName === undefined) continue;
-    if (templateName !== expectedTemplateName) {
-      return { rawYaml, templateName, verified: false };
-    }
-    released = true;
-    onVerifiedDelta(buffered);
-    buffered = "";
-  }
-
-  return { rawYaml, templateName, verified: released };
-}
-
 export function createApp({ config, modelClient } = {}) {
   const client = modelClient || new OpenAI({ apiKey: config.aiApiKey, baseURL: config.aiBaseUrl });
   const modelService = createModelService({
     client,
     model: config.aiModel,
-    timeoutMs: config.upstreamTimeoutMs,
-    outputMaxChars: config.outputMaxChars
+    outputMaxChars: config.outputMaxChars,
+    maxCompletionTokens: config.maxCompletionTokens
   });
   const idempotency = new IdempotencyStore();
   const limiter = new FixedWindowRateLimiter({ limit: config.rateLimitPerMinute });
@@ -98,10 +57,15 @@ export function createApp({ config, modelClient } = {}) {
     }
 
     let release;
+    const requestStartedAt = Date.now();
+    let requestBodyMs;
+    let promptAssemblyMs;
+    let requestMetrics = {};
     try {
       limiter.check(clientIp(req));
       release = beginRequest(clientIp(req));
       const input = await readJsonBody(req, config.requestMaxBytes);
+      requestBodyMs = Date.now() - requestStartedAt;
       const requestId = input?.operation?.request_id;
       const idempotencyKey = req.headers["idempotency-key"];
       if (idempotencyKey && requestId && idempotencyKey !== requestId) {
@@ -114,6 +78,7 @@ export function createApp({ config, modelClient } = {}) {
       }
 
       let prepared;
+      const promptAssemblyStartedAt = Date.now();
       try {
         if (input?.runtime_yaml?.length > config.runtimeMaxChars) {
           throw Object.assign(new Error("runtime_yaml超过长度限制"), { code: "RUNTIME_TOO_LARGE" });
@@ -126,6 +91,11 @@ export function createApp({ config, modelClient } = {}) {
         sendError(res, status, error.code || "PROMPT_ASSEMBLY_FAILED", error.message, config, origin, error.details, requestId);
         return;
       }
+      promptAssemblyMs = Date.now() - promptAssemblyStartedAt;
+      const systemPromptChars = prepared.messages.find(message => message.role === "system")?.content.length ?? 0;
+      const userPromptChars = prepared.messages.find(message => message.role === "user")?.content.length ?? 0;
+      const runtimeYamlChars = typeof prepared.runtimeYaml === "string" ? prepared.runtimeYaml.length : 0;
+      requestMetrics = { request_body_ms: requestBodyMs, prompt_assembly_ms: promptAssemblyMs, runtime_yaml_chars: runtimeYamlChars, system_prompt_chars: systemPromptChars, user_prompt_chars: userPromptChars };
 
       const fingerprint = hashRequest({ runtime_yaml: input.runtime_yaml, operation: input.operation, state_version: input.state_version });
       const result = idempotency.begin(prepared.requestId, fingerprint);
@@ -134,71 +104,59 @@ export function createApp({ config, modelClient } = {}) {
           sendError(res, 409, "IDEMPOTENCY_CONFLICT", "request_id已用于另一份请求快照", config, origin, undefined, prepared.requestId);
           return;
         }
-        if (result.entry.status === "completed" && result.entry.rawYaml !== undefined) {
-          writeSseHeaders(res, config, origin);
-          writeSseData(res, result.entry.rawYaml);
-          writeSseDone(res);
-          res.end();
-          return;
-        }
-        sendError(res, 409, "REQUEST_IN_PROGRESS", "相同request_id的请求正在处理中", config, origin, { status: result.entry.status }, prepared.requestId);
+        sendError(res, 409, "REQUEST_NOT_REPLAYABLE", "相同request_id的流已处理或正在处理中，不能重放或重新建立AI流", config, origin, { status: result.entry.status }, prepared.requestId);
         return;
       }
 
       idempotency.update(prepared.requestId, { status: "streaming" });
+      const startedAt = Date.now();
+      const log = (event, fields = {}) => console.info(JSON.stringify({
+        component: "adventure-chat",
+        event,
+        request_id: prepared.requestId,
+        operation: prepared.operationType,
+        elapsed_ms: Date.now() - startedAt,
+        total_elapsed_ms: Date.now() - requestStartedAt,
+        ...fields
+      }));
       const controller = new AbortController();
       const onAbort = () => controller.abort("client_aborted");
       req.once("aborted", onAbort);
       writeSseHeaders(res, config, origin);
+      const heartbeat = setInterval(() => writeSseComment(res, "keep-alive"), config.sseHeartbeatMs);
+      log("stream_started", {
+        model: config.aiModel,
+        max_completion_tokens: config.maxCompletionTokens,
+        ...requestMetrics
+      });
 
+      let streamMetrics;
       try {
-        let rawYaml = "";
-        let lastTemplateName;
-        let completed = false;
-        for (let attempt = 0; attempt <= config.templateRetryLimit; attempt += 1) {
-          const messages = attempt === 0
-            ? prepared.messages
-            : correctionMessages(prepared.messages, prepared.expectedTemplateName, lastTemplateName);
-          const outcome = await streamVerifiedAttempt({
-            modelService,
-            messages,
-            expectedTemplateName: prepared.expectedTemplateName,
-            signal: controller.signal,
-            onVerifiedDelta: delta => writeSseData(res, delta)
-          });
-          rawYaml = outcome.rawYaml;
-          lastTemplateName = outcome.templateName;
-          if (outcome.verified) {
-            completed = true;
-            break;
-          }
+        let forwardedChars = 0;
+        for await (const delta of modelService.stream(prepared.messages, {
+          signal: controller.signal,
+          onMetrics: metrics => { streamMetrics = metrics; }
+        })) {
+          writeSseData(res, delta);
+          forwardedChars += delta.length;
         }
-
-        if (!completed) {
-          const error = new ModelServiceError(
-            "SCHEMA_TEMPLATE_MISMATCH",
-            `模型输出模板“${lastTemplateName ?? "缺失"}”与期望模板“${prepared.expectedTemplateName}”不一致`,
-            502
-          );
-          error.details = {
-            expected_template_name: prepared.expectedTemplateName,
-            actual_template_name: lastTemplateName ?? null,
-            attempts: config.templateRetryLimit + 1
-          };
-          throw error;
-        }
+        const summary = { forwarded_chars: forwardedChars, ...(streamMetrics || {}) };
         if (controller.signal.aborted) {
           idempotency.update(prepared.requestId, { status: "cancelled" });
+          log("stream_cancelled", summary);
           return;
         }
-        idempotency.update(prepared.requestId, { status: "completed", rawYaml });
+        idempotency.update(prepared.requestId, { status: "completed" });
         writeSseDone(res);
+        log("stream_completed", summary);
       } catch (error) {
         const payload = { code: error.code || "UPSTREAM_ERROR", message: error.message };
         if (error.details !== undefined) payload.details = error.details;
         idempotency.update(prepared.requestId, { status: error.code === "CLIENT_ABORTED" ? "cancelled" : "failed", error: payload });
+        log("stream_failed", { code: payload.code, ...(streamMetrics || {}) });
         if (!controller.signal.aborted && !res.writableEnded) writeSseError(res, payload);
       } finally {
+        clearInterval(heartbeat);
         req.off("aborted", onAbort);
         if (!res.writableEnded) res.end();
       }
@@ -231,5 +189,3 @@ export function createApp({ config, modelClient } = {}) {
     sendError(res, 404, "NOT_FOUND", "未找到请求的端点", config, origin);
   };
 }
-
-export { ModelServiceError };

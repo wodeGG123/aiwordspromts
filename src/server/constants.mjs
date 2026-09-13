@@ -11,8 +11,8 @@ export const DEFAULT_LIMITS = Object.freeze({
   requestMaxBytes: 8 * 1024 * 1024,
   runtimeMaxChars: 256 * 1024,
   outputMaxChars: 256 * 1024,
-  templateRetryLimit: 1,
-  upstreamTimeoutMs: 120 * 1000,
+  maxCompletionTokens: 16 * 1024,
+  sseHeartbeatMs: 5 * 1000,
   rateLimitPerMinute: 30,
   maxConcurrentPerIp: 2
 });

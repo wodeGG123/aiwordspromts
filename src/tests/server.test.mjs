@@ -157,7 +157,10 @@ describe("server routes", () => {
       assert.equal(health.status, 200);
       assert.equal((await health.json()).contracts.runtime, "adventure-runtime-v4");
       assert.equal(capabilities.status, 200);
-      assert.deepEqual((await capabilities.json()).templates, ["新一轮事件", "战斗事件", "检定", "结算", "终章"]);
+      const capabilityBody = await capabilities.json();
+      assert.deepEqual(capabilityBody.templates, ["新一轮事件", "战斗事件", "检定", "结算", "终章"]);
+      assert.equal(capabilityBody.server_stream_mode, "incremental_passthrough");
+      assert.equal(capabilityBody.server_validates_output, false);
     } finally { await close(server); }
   });
 
@@ -194,6 +197,65 @@ describe("server routes", () => {
     } finally { await close(server); }
   });
 
+  it("emits heartbeat comments while awaiting the first model delta", async () => {
+    const client = { chat: { completions: { create: async function* () {
+      await new Promise(resolve => setTimeout(resolve, 130));
+      yield { choices: [{ delta: { content: `event_details:\n  template_name: "新一轮事件"\n` } }] };
+    } } } };
+    const { server, base } = await startTestServer({ client, configOverrides: { SSE_HEARTBEAT_MS: "100" } });
+    try {
+      const response = await fetch(`${base}/api/chat`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(validRequest()) });
+      const text = await readResponse(response);
+      assert.match(text, /: keep-alive\n\n/);
+    } finally { await close(server); }
+  });
+
+  it("reports EMPTY_MODEL_OUTPUT when the upstream closes without text", async () => {
+    const client = { chat: { completions: { create: async function* () {
+      yield { choices: [{ delta: {} }] };
+    } } } };
+    const { server, base } = await startTestServer({ client });
+    try {
+      const response = await fetch(`${base}/api/chat`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(validRequest()) });
+      const text = await readResponse(response);
+      assert.match(text, /EMPTY_MODEL_OUTPUT/);
+      assert.doesNotMatch(text, /data: \[DONE\]/);
+    } finally { await close(server); }
+  });
+
+  it("过滤reasoning_content，只透传最终content", async () => {
+    const client = { chat: { completions: { create: async function* () {
+      yield { choices: [{ delta: { reasoning_content: "We need produce YAML and should not expose this analysis." } }] };
+      yield { choices: [{ delta: { content: "event_details:\n  template_name: \\\"新一轮事件\\\"\n" } }] };
+    } } } };
+    const { server, base } = await startTestServer({ client });
+    try {
+      const response = await fetch(`${base}/api/chat`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(validRequest({ operation: { type: "start", request_id: "req-filter-reasoning", expected_template_name: "新一轮事件" } })) });
+      const text = await response.text();
+      assert.equal(response.status, 200);
+      assert.doesNotMatch(text, /We need produce YAML/);
+      assert.match(text, /template_name:/);
+      assert.match(text, /新一轮事件/);
+      assert.match(text, /data: \[DONE\]/);
+      assert.doesNotMatch(text, /EMPTY_MODEL_OUTPUT/);
+    } finally { await close(server); }
+  });
+
+  it("等待上游完成而不触发服务端超时", async () => {
+    const client = { chat: { completions: { create: async function* () {
+      await new Promise(resolve => setTimeout(resolve, 130));
+      yield { choices: [{ delta: { content: "delayed-output" } }] };
+    } } } };
+    const { server, base } = await startTestServer({ client, configOverrides: { SSE_HEARTBEAT_MS: "100" } });
+    try {
+      const response = await fetch(`${base}/api/chat`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(validRequest({ operation: { type: "start", request_id: "req-no-upstream-timeout", expected_template_name: "新一轮事件" } })) });
+      const text = await response.text();
+      assert.equal(response.status, 200);
+      assert.match(text, /data: delayed-output/);
+      assert.match(text, /data: \[DONE\]/);
+    } finally { await close(server); }
+  });
+
   it("streams deltas and one DONE frame", async () => {
     const { server, base } = await startTestServer({ chunks: ["event_details:\n  template_name: ", "\"新一轮事件\"\n"] });
     try {
@@ -213,7 +275,8 @@ describe("server routes", () => {
       assert.equal(response.status, 200);
       assert.equal(
         text,
-        'data: event_details:\ndata:   template_name: "新一轮事件"\ndata: \n\n' +
+        'data: event_details:\ndata:   template_name: \n\n' +
+          'data: "新一轮事件"\ndata: \n\n' +
           'data: [DONE]\n\n',
       );
     } finally { await close(server); }
@@ -231,64 +294,83 @@ describe("server routes", () => {
     } finally { await close(server); }
   });
 
-  it("模板不匹配时重试，并只发送最终匹配模板", async () => {
-    let calls = 0;
+  it("透传首个增量，不等待上游流结束", async () => {
+    let releaseSecond;
+    const secondChunk = new Promise(resolve => { releaseSecond = resolve; });
     const client = { chat: { completions: { create: async function* () {
-      calls += 1;
-      const template = calls === 1 ? "战斗事件" : "检定";
-      yield { choices: [{ delta: { content: `event_details:\n  template_name: "${template}"\n` } }] };
+      yield { choices: [{ delta: { content: "first-part" } }] };
+      await secondChunk;
+      yield { choices: [{ delta: { content: "second-part" } }] };
     } } } };
     const { server, base } = await startTestServer({ client });
+    let reader;
     try {
-      const request = validRequest({
-        operation: { type: "choose", request_id: "req-template-retry", expected_template_name: "检定" },
-        pending_interaction: { event_id: "M01", scene_id: "scene_village" }
-      });
-      const response = await fetch(`${base}/api/chat`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Origin: "http://client.test" },
-        body: JSON.stringify(request)
-      });
-      const text = await readResponse(response);
-      assert.equal(response.status, 200);
-      assert.equal(calls, 2);
-      assert.match(text, /template_name: "检定"/);
-      assert.doesNotMatch(text, /template_name: "战斗事件"/);
-      assert.equal((text.match(/data: \[DONE\]/g) || []).length, 1);
-    } finally { await close(server); }
+      const response = await fetch(`${base}/api/chat`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(validRequest({ operation: { type: "start", request_id: "req-incremental", expected_template_name: "新一轮事件" } })) });
+      reader = response.body.getReader();
+      const firstRead = await Promise.race([
+        reader.read(),
+        new Promise((_, reject) => setTimeout(() => reject(new Error("首个增量未及时到达")), 500))
+      ]);
+      const firstText = new TextDecoder().decode(firstRead.value);
+      assert.match(firstText, /data: first-part/);
+      releaseSecond();
+      let remaining = "";
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        remaining += new TextDecoder().decode(value);
+      }
+      assert.match(remaining, /data: second-part/);
+      assert.match(remaining, /data: \[DONE\]/);
+    } finally {
+      releaseSecond();
+      await reader?.cancel();
+      await close(server);
+    }
   });
 
-  it("模板重试耗尽时返回可诊断的模板错误", async () => {
+  it("透传错误模板且只调用模型一次", async () => {
     let calls = 0;
     const client = { chat: { completions: { create: async function* () {
       calls += 1;
-      yield { choices: [{ delta: { content: "event_details:\n  template_name: \"战斗事件\"\n" } }] };
+      yield { choices: [{ delta: { content: `event_details:\n  template_name: "战斗事件"\n` } }] };
     } } } };
-    const { server, base } = await startTestServer({ client, configOverrides: { AI_TEMPLATE_RETRY_LIMIT: "1" } });
+    const { server, base } = await startTestServer({ client });
     try {
       const response = await fetch(`${base}/api/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Origin: "http://client.test" },
         body: JSON.stringify(validRequest({
-          operation: { type: "choose", request_id: "req-template-failed", expected_template_name: "检定" },
+          operation: { type: "choose", request_id: "req-template-passthrough", expected_template_name: "检定" },
           pending_interaction: { event_id: "M01", scene_id: "scene_village" }
         }))
       });
       const text = await readResponse(response);
       assert.equal(response.status, 200);
-      assert.equal(calls, 2);
-      assert.match(text, /event: error/);
-      const errorLine = text.split("\n").find(line => line.startsWith("data: {") && line.includes("SCHEMA_TEMPLATE_MISMATCH"));
-      assert.ok(errorLine);
-      const payload = JSON.parse(errorLine.slice("data: ".length));
-      assert.equal(payload.code, "SCHEMA_TEMPLATE_MISMATCH");
-      assert.deepEqual(payload.details, {
-        expected_template_name: "检定",
-        actual_template_name: "战斗事件",
-        attempts: 2
-      });
+      assert.equal(calls, 1);
+      assert.doesNotMatch(text, /event: reset/);
+      assert.match(text, /template_name: "战斗事件"/);
+      assert.equal((text.match(/data: \[DONE\]/g) || []).length, 1);
     } finally { await close(server); }
   });
+
+  it("在已转发片段后通过SSE报告上游错误", async () => {
+    const client = { chat: { completions: { create: async function* () {
+      yield { choices: [{ delta: { content: "partial" } }] };
+      throw new Error("upstream disconnected");
+    } } } };
+    const { server, base } = await startTestServer({ client });
+    try {
+      const response = await fetch(`${base}/api/chat`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(validRequest({ operation: { type: "start", request_id: "req-upstream-failure", expected_template_name: "新一轮事件" } })) });
+      const text = await readResponse(response);
+      assert.equal(response.status, 200);
+      assert.match(text, /data: partial/);
+      assert.match(text, /event: error/);
+      assert.match(text, /UPSTREAM_ERROR/);
+      assert.doesNotMatch(text, /data: \[DONE\]/);
+    } finally { await close(server); }
+  });
+
   it("does not call model twice for the same request snapshot", async () => {
     let calls = 0;
     const client = { chat: { completions: { create: async function* () { calls += 1; yield { choices: [{ delta: { content: "event_details:\n  template_name: \"新一轮事件\"\n" } }] }; } } } };
@@ -299,9 +381,11 @@ describe("server routes", () => {
       const first = await fetch(`${base}/api/chat`, { method: "POST", headers, body });
       await first.text();
       const second = await fetch(`${base}/api/chat`, { method: "POST", headers, body });
-      const text = await second.text();
+      const payload = await second.json();
       assert.equal(calls, 1);
-      assert.equal((text.match(/data: \[DONE\]/g) || []).length, 1);
+      assert.equal(second.status, 409);
+      assert.equal(payload.error.code, "REQUEST_NOT_REPLAYABLE");
+      assert.equal(payload.error.details.status, "completed");
     } finally { await close(server); }
   });
 });
