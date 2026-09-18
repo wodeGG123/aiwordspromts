@@ -182,6 +182,13 @@ export function createApp({ config, modelClient } = {}) {
       sendJson(res, 200, capabilitiesPayload(config), config, origin);
       return;
     }
+    if (req.method === "GET" && req.url === "/api/apk") {
+      sendJson(res, 200, {
+        url: config.apkUrl,
+        version: config.apkVersion
+      }, config, origin);
+      return;
+    }
     if (req.url === "/api/chat") {
       await handleChat(req, res, origin);
       return;

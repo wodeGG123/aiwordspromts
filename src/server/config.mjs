@@ -1,3 +1,6 @@
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { dirname, resolve } from "node:path";
 import { DEFAULT_LIMITS } from "./constants.mjs";
 
 function integerEnv(env, name, fallback, { min = 0, max = Number.MAX_SAFE_INTEGER } = {}) {
@@ -16,6 +19,23 @@ function required(env, name) {
   return value;
 }
 
+function readApkInfo(env) {
+  const candidate = env.APK_INFO_FILE || resolve(dirname(fileURLToPath(import.meta.url)), "../../apk-info.json");
+  try {
+    const raw = readFileSync(candidate, "utf8");
+    const parsed = JSON.parse(raw);
+    return {
+      apkUrl: typeof parsed.url === "string" ? parsed.url : "",
+      apkVersion: typeof parsed.version === "string" ? parsed.version : ""
+    };
+  } catch (error) {
+    if (error.code === "ENOENT") {
+      return { apkUrl: "", apkVersion: "" };
+    }
+    throw new Error(`读取 APK 配置文件 ${candidate} 失败: ${error.message}`);
+  }
+}
+
 export function loadConfig(env = process.env) {
   const nodeEnv = env.NODE_ENV || "development";
   const isProduction = nodeEnv === "production";
@@ -29,6 +49,8 @@ export function loadConfig(env = process.env) {
   if (isProduction && clientOrigins.includes("*")) {
     throw new Error("CLIENT_ORIGINS cannot contain * in production");
   }
+
+  const apkInfo = readApkInfo(env);
 
   return Object.freeze({
     nodeEnv,
@@ -46,6 +68,8 @@ export function loadConfig(env = process.env) {
     rateLimitPerMinute: integerEnv(env, "RATE_LIMIT_PER_MINUTE", DEFAULT_LIMITS.rateLimitPerMinute, { min: 1 }),
     maxConcurrentPerIp: integerEnv(env, "MAX_CONCURRENT_PER_IP", DEFAULT_LIMITS.maxConcurrentPerIp, { min: 1 }),
     enablePromptFilter: env.ENABLE_PROMPT_FILTER === "true",
-    promptBlacklist: (env.PROMPT_BLACKLIST || "").split(",").map(value => value.trim()).filter(Boolean)
+    promptBlacklist: (env.PROMPT_BLACKLIST || "").split(",").map(value => value.trim()).filter(Boolean),
+    apkUrl: apkInfo.apkUrl,
+    apkVersion: apkInfo.apkVersion
   });
 }
