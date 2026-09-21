@@ -70,6 +70,9 @@ export function loadConfig(env = process.env) {
     enablePromptFilter: env.ENABLE_PROMPT_FILTER === "true",
     promptBlacklist: (env.PROMPT_BLACKLIST || "").split(",").map(value => value.trim()).filter(Boolean),
     apkUrl: apkInfo.apkUrl,
-    apkVersion: apkInfo.apkVersion
+    apkVersion: apkInfo.apkVersion,
+    proxyEnabled: env.PROXY_ENABLED !== "false",
+    proxyPort: integerEnv(env, "PROXY_PORT", 3001, { min: 1 }),
+    proxyTarget: env.PROXY_TARGET || "https://f8q3w6v1.dimecho.com"
   });
 }

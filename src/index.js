@@ -1,7 +1,8 @@
 import "dotenv/config";
-import http from "http";
+import http from "node:http";
 import { loadConfig } from "./server/config.mjs";
 import { createApp } from "./server/routes.mjs";
+import { createProxyServer } from "./server/proxy_server.mjs";
 
 let config;
 try {
@@ -24,17 +25,38 @@ const server = http.createServer((req, res) => {
   });
 });
 
+let proxyServer = null;
+if (config.proxyEnabled) {
+  proxyServer = createProxyServer({
+    target: config.proxyTarget,
+    label: "proxy",
+    allowAllCors: true
+  });
+}
+
+const servers = [server, proxyServer].filter(Boolean);
 let shuttingDown = false;
 function shutdown(signal) {
   if (shuttingDown) return;
   shuttingDown = true;
   console.log(`[server] shutting down (${signal})`);
-  server.close(error => {
-    if (error) {
-      console.error(`[server] shutdown failed: ${error.message}`);
-      process.exitCode = 1;
+  let remaining = servers.length;
+  const onClosed = error => {
+    if (error) console.error(`[server] shutdown failed: ${error.message}`);
+    remaining -= 1;
+    if (remaining === 0) {
+      if (servers.some((_, idx) => errors[idx])) process.exitCode = 1;
+      process.exit();
     }
-    process.exit();
+  };
+  const errors = [];
+  servers.forEach(srv => {
+    try {
+      srv.close(onClosed);
+    } catch (error) {
+      errors.push(error);
+      onClosed(error);
+    }
   });
 }
 
@@ -52,4 +74,14 @@ server.on("error", error => {
   process.exit(1);
 });
 
-export { server };
+if (proxyServer) {
+  proxyServer.listen(config.proxyPort, () => {
+    console.log(`[proxy] forwarding CORS-enabled traffic on http://localhost:${config.proxyPort} -> ${config.proxyTarget}`);
+  });
+  proxyServer.on("error", error => {
+    console.error(`[proxy] ${error.message}`);
+    process.exit(1);
+  });
+}
+
+export { server, proxyServer };
