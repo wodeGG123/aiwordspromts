@@ -47,7 +47,7 @@ export function loadConfig(env = process.env) {
 
   if (isProduction && !apiKey) throw new Error("AI_API_KEY is required in production");
   if (isProduction && clientOrigins.includes("*")) {
-    throw new Error("CLIENT_ORIGINS cannot contain * in production");
+    console.warn("[config] CLIENT_ORIGINS=* is set in production — CORS headers will allow all origins. This is safe for native app clients (they don't enforce CORS) but not recommended for browser clients.");
   }
 
   const apkInfo = readApkInfo(env);

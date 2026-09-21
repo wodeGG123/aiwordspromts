@@ -1,7 +1,6 @@
 import http from "node:http";
 import https from "node:https";
 import { URL } from "node:url";
-import { request as undiciRequest } from "undici";
 
 // hop-by-hop 头不应该透传到上游，也不要回写到客户端
 // host 是 hop-by-hop，但必须转发给上游才能让目标服务器正确路由和 TLS 校验
@@ -42,14 +41,12 @@ function filterRequestHeaders(headers, upstreamHostname) {
   const out = {};
   for (const [key, value] of Object.entries(headers)) {
     if (HOP_BY_HOP_HEADERS.has(key.toLowerCase())) continue;
-    // 覆盖已有 host 头，而不是追加，避免 undici 报 duplicate host header
     if (key.toLowerCase() === "host") {
       out["Host"] = upstreamHostname;
       continue;
     }
     out[key] = value;
   }
-  // 如果原始请求没有 host 头（如 curl 直接访问），直接补上
   if (!out["Host"]) out["Host"] = upstreamHostname;
   return out;
 }
@@ -85,7 +82,7 @@ export function buildProxyHandler({ target, label = "proxy", allowAllCors = true
     console.log(`[${label}] ${req.method} ${req.url} -> ${upstreamUrl}`);
     console.log(`[${label}] upstream headers:`, JSON.stringify(upstreamHeaders));
 
-    // 读取请求 body（用于 POST/PUT 等）
+    // 读取请求 body
     const chunks = [];
     for await (const chunk of req) {
       chunks.push(chunk);
@@ -93,44 +90,38 @@ export function buildProxyHandler({ target, label = "proxy", allowAllCors = true
     const body = chunks.length > 0 ? Buffer.concat(chunks) : undefined;
 
     try {
-      const upstreamRes = await undiciRequest(upstreamUrl, {
+      // 使用 Node.js 原生 fetch（Node 18+ 内置，无需 undici）
+      const upstreamRes = await fetch(upstreamUrl, {
         method: req.method,
         headers: upstreamHeaders,
         body,
-        // undici 默认 TLS 指纹更接近浏览器，不容易被反爬拦截
-        bodyTimeout: 30_000,
-        headersTimeout: 30_000,
-        connectTimeout: 10_000,
+        // 禁用自动重定向，由代理透明转发
+        redirect: "manual",
+        signal: AbortSignal.timeout(30_000),
       });
 
-      const responseHeaders = filterResponseHeaders(upstreamRes.headers);
+      const responseHeaders = filterResponseHeaders(
+        Object.fromEntries(upstreamRes.headers.entries())
+      );
 
       const clientHeaders = {
         ...responseHeaders,
         ...corsHeaders(origin, allowAllCors)
       };
 
-      res.writeHead(upstreamRes.statusCode, clientHeaders);
+      res.writeHead(upstreamRes.status, clientHeaders);
 
-      for await (const chunk of upstreamRes.body) {
-        res.write(chunk);
+      // 透明转发响应体
+      if (upstreamRes.body) {
+        for await (const chunk of upstreamRes.body) {
+          res.write(chunk);
+        }
       }
       res.end();
 
     } catch (error) {
-      const code = error.code || "";
-      const statusCode =
-        code === "UND_ERR_CONNECT" || code === "ECONNREFUSED" ? 502 :
-        code === "UND_ERR_RESPONSE"  ? 502 :
-        code === "UND_ERR_HEADERS"   ? 502 :
-        code === "UND_ERR_TIMEOUT"    ? 504 :
-        502;
-
+      const code = error.cause?.code || "";
       const reason =
-        code === "UND_ERR_CONNECT"     ? "无法建立到上游的连接（连接被重置或超时）" :
-        code === "UND_ERR_RESPONSE"    ? "上游在响应过程中发生错误（可能返回 5xx 或被反爬拦截）" :
-        code === "UND_ERR_HEADERS"     ? "上游响应头解析失败" :
-        code === "UND_ERR_TIMEOUT"     ? "上游响应超时（30s）" :
         code === "ECONNREFUSED"        ? "上游拒绝连接（服务未启动或端口不对）" :
         code === "ENOTFOUND"           ? "DNS 解析失败（域名不存在或网络不通）" :
         code === "ETIMEDOUT"           ? "连接超时（网络问题或上游响应过慢）" :
@@ -138,7 +129,11 @@ export function buildProxyHandler({ target, label = "proxy", allowAllCors = true
         code === "EPIPE"               ? "写入管道破裂（上游提前关闭了连接）" :
         `未知错误 code=${code} message=${error.message}`;
 
-      console.error(`[${label}] undici error: ${reason} (${error.message})`);
+      console.error(`[${label}] fetch error: ${reason} (${error.message})`);
+
+      const statusCode =
+        code === "ECONNREFUSED" || code === "ENOTFOUND" || code === "ETIMEDOUT" || code === "ECONNRESET" ? 502 :
+        502;
 
       if (!res.headersSent) {
         res.writeHead(statusCode, {
