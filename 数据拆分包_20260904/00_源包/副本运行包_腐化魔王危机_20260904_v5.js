@@ -1741,7 +1741,18 @@ export function buildDungeonContext({
     const ids = Object.freeze([activeEventId]);
     const selectedSections = activeSectionNamesByTemplate[expectedTemplateName] ?? activeSectionNames;
     const localSelfCheck = activeSelfCheckByTemplate[expectedTemplateName] ?? joinSections(["内容约束自检"]);
-    const prompt = [joinSections(selectedSections), structuredEventContractPrompt, scopePrompt(mode, ids, activeEventId), "#当前事件完整YAML\n" + eventPromptById[activeEventId], localSelfCheck].join("\n\n");
+    // 明确约束本次输出模板，防止 AI 被事件 YAML 中的所有选项干扰而输出错误模板
+    const templateConstraint = expectedTemplateName != null
+      ? `#本次输出模板约束\n##程序要求本次只输出「${expectedTemplateName}」模板，禁止输出其他四种模板。`
+      : "";
+    const prompt = [
+      templateConstraint,
+      joinSections(selectedSections),
+      structuredEventContractPrompt,
+      scopePrompt(mode, ids, activeEventId),
+      "#当前事件完整YAML\n" + eventPromptById[activeEventId],
+      localSelfCheck
+    ].filter(Boolean).join("\n\n");
     return Object.freeze({ mode, prompt, includedEventIds: ids, stage: null });
   }
 
@@ -1757,7 +1768,19 @@ export function buildDungeonContext({
   const frozenIds = Object.freeze(ids);
   const assets = collectGenerationAssets(frozenIds, currentSceneId);
   const blocks = ids.map(eventId => `#候选事件 ${eventId}\n${eventPromptById[eventId]}`).join("\n\n");
-  const prompt = [joinSections(generationSectionNames), structuredEventContractPrompt, assets.prompt, dungeonEventOutlinePrompt, scopePrompt(mode, frozenIds), blocks, joinSections(["随机事件补充规则", "内容约束自检"])].join("\n\n");
+  const templateConstraint = expectedTemplateName != null
+    ? `#本次输出模板约束\n##程序要求本次只输出「${expectedTemplateName}」模板，禁止输出其他四种模板。`
+    : "";
+  const prompt = [
+    templateConstraint,
+    joinSections(generationSectionNames),
+    structuredEventContractPrompt,
+    assets.prompt,
+    dungeonEventOutlinePrompt,
+    scopePrompt(mode, frozenIds),
+    blocks,
+    joinSections(["随机事件补充规则", "内容约束自检"])
+  ].filter(Boolean).join("\n\n");
   return Object.freeze({
     mode,
     prompt,

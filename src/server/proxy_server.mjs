@@ -27,6 +27,20 @@ const OVERRIDE_RESPONSE_HEADERS = new Set([
   "vary"
 ]);
 
+// 描述「传输字节」而非「响应实体」的头，回写客户端前必须丢弃。
+//
+// Node 内置 fetch（undici）按 Fetch 规范自动解压上游响应体：上游发来
+// `Content-Encoding: gzip` 的压缩字节，upstreamRes.body 迭代出来已经是明文，
+// 但 upstreamRes.headers 里的 content-encoding 仍保留原值。
+// 照抄该头就会变成「明文内容 + gzip 标头」，浏览器解码失败并报
+// net::ERR_CONTENT_DECODING_FAILED（小响应未达上游压缩阈值时不出错，
+// 所以只有 artifacts 这类大列表会暴露问题）。
+// content-length 同理描述的是压缩后的长度，一并丢弃，由 Node 按明文重新分块。
+const TRANSPORT_ENCODING_RESPONSE_HEADERS = new Set([
+  "content-encoding",
+  "content-length"
+]);
+
 function corsHeaders(requestOrigin, allowAll = false) {
   return {
     "Access-Control-Allow-Origin": allowAll ? "*" : (requestOrigin || "*"),
@@ -54,8 +68,10 @@ function filterRequestHeaders(headers, upstreamHostname) {
 function filterResponseHeaders(headers) {
   const out = {};
   for (const [key, value] of Object.entries(headers)) {
-    if (HOP_BY_HOP_HEADERS.has(key.toLowerCase())) continue;
-    if (OVERRIDE_RESPONSE_HEADERS.has(key.toLowerCase())) continue;
+    const lower = key.toLowerCase();
+    if (HOP_BY_HOP_HEADERS.has(lower)) continue;
+    if (TRANSPORT_ENCODING_RESPONSE_HEADERS.has(lower)) continue;
+    if (OVERRIDE_RESPONSE_HEADERS.has(lower)) continue;
     out[key] = value;
   }
   return out;
