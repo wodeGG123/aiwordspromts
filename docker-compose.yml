@@ -1,0 +1,46 @@
+# ============================================================
+# AI 转发代理 - Docker Compose 部署
+# 容器名: ai-forward-proxy
+# 暴露端口:
+#   - 3000  主 API(聊天 + 健康检查)
+#   - 3001  CORS 反向代理
+# ============================================================
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: aiwordspromts:latest
+    container_name: ai-forward-proxy
+    restart: unless-stopped
+    env_file:
+      - .env.production
+    environment:
+      # 时区跟随宿主
+      - TZ=${TZ:-Asia/Shanghai}
+      NODE_ENV: production
+    ports:
+      - "${PORT:-3000}:3000"
+      - "${PROXY_PORT:-3001}:3001"
+    # 限制资源,避免影响同机其他服务
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512M
+        reservations:
+          cpus: "0.25"
+          memory: 128M
+    # 日志大小限制,防止磁盘爆满
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "5"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
