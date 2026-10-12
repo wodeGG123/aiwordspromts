@@ -2,6 +2,7 @@ import OpenAI from "openai";
 import { preparePromptFromRequest, RuntimeContractError } from "../runtime_contract.mjs";
 import { IdempotencyStore, FixedWindowRateLimiter } from "./idempotency_store.mjs";
 import { createModelService } from "./model_service.mjs";
+import { createAiDebugger } from "./ai_debug.mjs";
 import {
   capabilitiesPayload,
   healthPayload,
@@ -33,6 +34,16 @@ export function createApp({ config, modelClient } = {}) {
   });
   const idempotency = new IdempotencyStore();
   const limiter = new FixedWindowRateLimiter({ limit: config.rateLimitPerMinute });
+  const aiDebugger = createAiDebugger({
+    enabled: config.aiDebugTrace,
+    logDir: config.aiDebugLogDir,
+    maxAgeDays: config.aiDebugLogMaxAgeDays
+  });
+  if (aiDebugger.enabled) {
+    console.info(`[ai-trace] ENABLED, writing each AI call to ${aiDebugger.dir} (retention: ${aiDebugger.maxAgeDays} days)`);
+  } else {
+    console.info(`[ai-trace] disabled (set AI_DEBUG_TRACE=true to enable, or unset NODE_ENV=production)`);
+  }
   const activeByIp = new Map();
 
   function beginRequest(ip) {
@@ -97,6 +108,29 @@ export function createApp({ config, modelClient } = {}) {
       const runtimeYamlChars = typeof prepared.runtimeYaml === "string" ? prepared.runtimeYaml.length : 0;
       requestMetrics = { request_body_ms: requestBodyMs, prompt_assembly_ms: promptAssemblyMs, runtime_yaml_chars: runtimeYamlChars, system_prompt_chars: systemPromptChars, user_prompt_chars: userPromptChars };
 
+      // 协议规定 current_team 必须出现在发给 AI 的 prompt 里,否则 AI 拿不到队员姓名/属性/职业/种族/性格
+      // (典型表现:剧情里不出现卡牌名,卡牌特性不进叙事,检定无法执行)
+      // 顶层 current_team 已自动注入 runtime_yaml;这里仅做诊断,缺了就打 warning
+      const currentTeamSource = prepared.currentTeamSource ?? "missing";
+      if (currentTeamSource === "missing") {
+        console.warn(JSON.stringify({
+          component: "adventure-chat",
+          event: "current_team_missing",
+          request_id: prepared.requestId,
+          operation: prepared.operationType,
+          hint: "请确认前端在请求里传了 current_team(顶层数组或 runtime_yaml 内的 current_team: 块),否则 AI 无法感知上阵卡牌"
+        }));
+      } else {
+        const teamCount = Array.isArray(prepared.currentTeam) ? prepared.currentTeam.length : (userPromptChars > 0 ? 1 : 0);
+        console.info(JSON.stringify({
+          component: "adventure-chat",
+          event: "current_team_present",
+          request_id: prepared.requestId,
+          source: currentTeamSource,
+          member_count: teamCount
+        }));
+      }
+
       const fingerprint = hashRequest({ runtime_yaml: input.runtime_yaml, operation: input.operation, state_version: input.state_version });
       const result = idempotency.begin(prepared.requestId, fingerprint);
       if (!result.created) {
@@ -130,6 +164,17 @@ export function createApp({ config, modelClient } = {}) {
         ...requestMetrics
       });
 
+      // 调试追踪:记录完整 prompt 和 AI 输出
+      const trace = aiDebugger.start({
+        requestId: prepared.requestId,
+        operation: prepared.operationType,
+        clientIp: clientIp(req),
+        model: config.aiModel,
+        maxTokens: config.maxCompletionTokens,
+        messages: prepared.messages,
+        runtimeYaml: input.runtime_yaml
+      });
+
       let streamMetrics;
       try {
         let forwardedChars = 0;
@@ -137,6 +182,7 @@ export function createApp({ config, modelClient } = {}) {
           signal: controller.signal,
           onMetrics: metrics => { streamMetrics = metrics; }
         })) {
+          aiDebugger.appendDelta(trace, delta);
           writeSseData(res, delta);
           forwardedChars += delta.length;
         }
@@ -144,17 +190,20 @@ export function createApp({ config, modelClient } = {}) {
         if (controller.signal.aborted) {
           idempotency.update(prepared.requestId, { status: "cancelled" });
           log("stream_cancelled", summary);
+          await aiDebugger.finish(trace, { status: "cancelled", metrics: streamMetrics });
           return;
         }
         idempotency.update(prepared.requestId, { status: "completed" });
         writeSseDone(res);
         log("stream_completed", summary);
+        await aiDebugger.finish(trace, { status: "completed", metrics: streamMetrics });
       } catch (error) {
         const payload = { code: error.code || "UPSTREAM_ERROR", message: error.message };
         if (error.details !== undefined) payload.details = error.details;
         idempotency.update(prepared.requestId, { status: error.code === "CLIENT_ABORTED" ? "cancelled" : "failed", error: payload });
         log("stream_failed", { code: payload.code, ...(streamMetrics || {}) });
         if (!controller.signal.aborted && !res.writableEnded) writeSseError(res, payload);
+        await aiDebugger.finish(trace, { status: error.code === "CLIENT_ABORTED" ? "cancelled" : "failed", error, metrics: streamMetrics });
       } finally {
         clearInterval(heartbeat);
         req.off("aborted", onAbort);

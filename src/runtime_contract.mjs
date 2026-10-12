@@ -110,6 +110,17 @@ function requireField(object, key, label, type) {
   return value;
 }
 
+// 只校验字段存在性,不校验非空(用于 current_team 等宽松场景)
+function checkField(object, key, label, type) {
+  invariant(hasOwn(object, key), "MISSING_FIELD", `${label}缺少字段${key}`);
+  const value = object[key];
+  if (type === "object") invariant(isObject(value), "FIELD_TYPE", `${label}.${key}必须是object`);
+  else if (type === "string") invariant(isString(value), "FIELD_TYPE", `${label}.${key}必须是string`);
+  else if (type === "integer") invariant(isInteger(value), "FIELD_TYPE", `${label}.${key}必须是安全整数`);
+  else if (type === "array") invariant(Array.isArray(value), "FIELD_TYPE", `${label}.${key}必须是array`);
+  return value;
+}
+
 function validatePackageContext(value) {
   invariant(isObject(value), "PACKAGE_CONTEXT_TYPE", "package_context必须是object");
   invariant(hasOwn(value, "engine") && isObject(value.engine), "PACKAGE_CONTEXT_ENGINE", "package_context.engine缺失");
@@ -162,6 +173,112 @@ function validateCandidates(value) {
     ids.add(item.event_id);
   }
   return candidates;
+}
+
+// current_team 校验:协议规定 1-4 名队员,每名必填 9 项核心字段 + 12 项 attributes
+const TEAM_ATTRIBUTE_KEYS = Object.freeze([
+  "strength", "agility", "intelligence", "constitution", "physique", "dexterity",
+  "perception", "knowledge", "survival", "social", "authority", "deception"
+]);
+
+function validateCurrentTeamMember(member, index) {
+  invariant(isObject(member), "CURRENT_TEAM_MEMBER_TYPE", `current_team[${index}]必须是object`);
+  const instanceId = checkField(member, "instance_id", `current_team[${index}]`, "string");
+  const cardId = member.card_id;
+  invariant(
+    cardId !== undefined && (isString(cardId) || isInteger(cardId)),
+    "CURRENT_TEAM_CARD_ID", `current_team[${index}].card_id缺失`
+  );
+  const name = checkField(member, "name", `current_team[${index}]`, "string");
+  const quality = checkField(member, "quality", `current_team[${index}]`, "integer");
+  invariant(quality >= 1 && quality <= 6, "CURRENT_TEAM_QUALITY", `current_team[${index}].quality必须为1-6`);
+  checkField(member, "profession", `current_team[${index}]`, "string");
+  checkField(member, "gender", `current_team[${index}]`, "string");
+  checkField(member, "race", `current_team[${index}]`, "string");
+  checkField(member, "personality", `current_team[${index}]`, "string");
+  const attributes = checkField(member, "attributes", `current_team[${index}]`, "object");
+  for (const key of TEAM_ATTRIBUTE_KEYS) {
+    invariant(
+      isInteger(attributes[key]) && attributes[key] >= 0 && attributes[key] <= 20,
+      "CURRENT_TEAM_ATTRIBUTE", `current_team[${index}].attributes.${key}必须为0-20的整数`
+    );
+  }
+  for (const key of Object.keys(attributes)) {
+    invariant(TEAM_ATTRIBUTE_KEYS.includes(key), "CURRENT_TEAM_ATTRIBUTE_KEY", `current_team[${index}].attributes.${key}不在白名单中`);
+  }
+  if (hasOwn(member, "narrative_profile")) {
+    invariant(isString(member.narrative_profile), "CURRENT_TEAM_PROFILE", `current_team[${index}].narrative_profile必须是string`);
+  }
+  return Object.freeze({
+    instance_id: instanceId,
+    card_id: String(cardId),
+    name,
+    quality,
+    profession: member.profession,
+    gender: member.gender,
+    race: member.race,
+    personality: member.personality,
+    attributes: Object.freeze(Object.fromEntries(TEAM_ATTRIBUTE_KEYS.map(key => [key, attributes[key]]))),
+    origin_world_id: isString(member.origin_world_id) ? member.origin_world_id : undefined,
+    origin_world_name: isString(member.origin_world_name) ? member.origin_world_name : undefined,
+    narrative_profile: isString(member.narrative_profile) ? member.narrative_profile : undefined
+  });
+}
+
+function validateCurrentTeam(team) {
+  invariant(Array.isArray(team), "CURRENT_TEAM_TYPE", "current_team必须是array");
+  invariant(team.length >= 1 && team.length <= 4, "CURRENT_TEAM_SIZE", "current_team必须包含1-4名队员");
+  const members = [];
+  const names = new Set();
+  for (const [index, member] of team.entries()) {
+    const normalized = validateCurrentTeamMember(member, index);
+    invariant(!names.has(normalized.name), "CURRENT_TEAM_DUPLICATE", `current_team[${index}].name重复: ${normalized.name}`);
+    names.add(normalized.name);
+    members.push(normalized);
+  }
+  return Object.freeze(members);
+}
+
+// 从请求中提取 current_team:优先顶层结构化字段,其次尝试从 runtime_yaml 字符串解析
+function extractCurrentTeam(request) {
+  if (hasOwn(request, "current_team")) {
+    const team = validateCurrentTeam(request.current_team);
+    return Object.freeze({ team, source: "top_level" });
+  }
+  if (typeof request.runtime_yaml === "string" && /^current_team:/m.test(request.runtime_yaml)) {
+    return Object.freeze({ team: null, source: "runtime_yaml_string" });
+  }
+  return Object.freeze({ team: null, source: "missing" });
+}
+
+// 将 current_team 序列化为 YAML 片段(顶层是 current_team:,每名队员是一个列表项)
+function serializeCurrentTeamToYaml(team) {
+  const lines = ["current_team:"];
+  for (const member of team) {
+    lines.push(`  - instance_id: ${yamlEscapeScalar(member.instance_id)}`);
+    lines.push(`    card_id: ${yamlEscapeScalar(member.card_id)}`);
+    lines.push(`    name: ${yamlEscapeScalar(member.name)}`);
+    lines.push(`    quality: ${member.quality}`);
+    lines.push(`    profession: ${yamlEscapeScalar(member.profession)}`);
+    lines.push(`    gender: ${yamlEscapeScalar(member.gender)}`);
+    lines.push(`    race: ${yamlEscapeScalar(member.race)}`);
+    lines.push(`    personality: ${yamlEscapeScalar(member.personality)}`);
+    const attrs = TEAM_ATTRIBUTE_KEYS.map(key => `${key}: ${member.attributes[key]}`).join(", ");
+    lines.push(`    attributes: {${attrs}}`);
+    if (member.origin_world_id) lines.push(`    origin_world_id: ${yamlEscapeScalar(member.origin_world_id)}`);
+    if (member.origin_world_name) lines.push(`    origin_world_name: ${yamlEscapeScalar(member.origin_world_name)}`);
+    if (member.narrative_profile) lines.push(`    narrative_profile: ${yamlEscapeScalar(member.narrative_profile)}`);
+  }
+  return lines.join("\n");
+}
+
+// 把 current_team 片段合并进 runtime_yaml:
+// - 如果 runtime_yaml 里已经有 current_team: 块,先剥掉
+// - 然后把新片段作为顶层键追加(顶层键覆盖式)
+function mergeCurrentTeamIntoRuntimeYaml(runtimeYaml, teamYaml) {
+  const pattern = /^current_team:\s*\n(?:[ \t]+[^\n]*\n?)*/m;
+  const stripped = runtimeYaml.replace(pattern, "").replace(/\n+$/g, "");
+  return stripped.length > 0 ? `${stripped}\n\n${teamYaml}\n` : `${teamYaml}\n`;
 }
 
 function validateEventContext(request, operationType, expectedTemplateName, currentRound, currentSceneId, pendingInteraction) {
@@ -391,6 +508,8 @@ export function validateRequest(request) {
     invariant(["normal", "hard", "nightmare"].includes(runDifficulty), "RUN_DIFFICULTY", "run_difficulty必须是normal/hard/nightmare");
   }
 
+  const { team: currentTeam, source: currentTeamSource } = extractCurrentTeam(request);
+
   return {
     runtimeYaml,
     operation,
@@ -403,7 +522,9 @@ export function validateRequest(request) {
     storyState,
     pendingInteraction,
     candidates,
-    eventContext
+    eventContext,
+    currentTeam,
+    currentTeamSource
   };
 }
 
@@ -423,6 +544,14 @@ export function preparePromptFromRequest(request, options = {}) {
     if (patch.length > 0) {
       runtimeYaml = applyYamlFilterPatch(runtimeYaml, patch);
     }
+  }
+
+  // 如果请求里以结构化方式提供了 current_team,序列化进 runtime_yaml
+  // (协议规定 current_team 必须出现在发给 AI 的 runtime YAML 里,
+  // 否则 AI 拿不到队员姓名/属性/职业/种族,无法生成准确的剧情)
+  if (normalized.currentTeam && normalized.currentTeamSource === "top_level") {
+    const teamYaml = serializeCurrentTeamToYaml(normalized.currentTeam);
+    runtimeYaml = mergeCurrentTeamIntoRuntimeYaml(runtimeYaml, teamYaml);
   }
 
   const prepared = prepareAiMessages({
@@ -448,6 +577,8 @@ export function preparePromptFromRequest(request, options = {}) {
     requestId: normalized.requestId,
     operationType: normalized.operationType,
     expectedTemplateName: normalized.expectedTemplateName,
-    runtimeYaml
+    runtimeYaml,
+    currentTeam: normalized.currentTeam,
+    currentTeamSource: normalized.currentTeamSource
   };
 }

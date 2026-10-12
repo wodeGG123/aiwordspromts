@@ -73,6 +73,14 @@ export function loadConfig(env = process.env) {
     apkVersion: apkInfo.apkVersion,
     proxyEnabled: env.PROXY_ENABLED !== "false",
     proxyPort: integerEnv(env, "PROXY_PORT", 3001, { min: 1 }),
-    proxyTarget: env.PROXY_TARGET || "https://f8q3w6v1.dimecho.com"
+    proxyTarget: env.PROXY_TARGET || "https://f8q3w6v1.dimecho.com",
+    // AI 调试追踪:开发环境默认开(便于排查),生产环境默认关(避免写盘)
+    // 显式 AI_DEBUG_TRACE=true / false 可覆盖默认
+    // trace 文件超过 aiDebugLogMaxAgeDays 天会自动清理
+    aiDebugTrace: env.AI_DEBUG_TRACE === undefined
+      ? !isProduction
+      : env.AI_DEBUG_TRACE === "true",
+    aiDebugLogDir: env.AI_DEBUG_LOG_DIR || "./logs/ai-trace",
+    aiDebugLogMaxAgeDays: integerEnv(env, "AI_DEBUG_LOG_MAX_AGE_DAYS", 7, { min: 1 })
   });
 }

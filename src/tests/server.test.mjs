@@ -3,7 +3,28 @@ import assert from "node:assert/strict";
 import http from "node:http";
 import { loadConfig } from "../server/config.mjs";
 import { createApp } from "../server/routes.mjs";
-import { validateRequest } from "../runtime_contract.mjs";
+import { validateRequest, preparePromptFromRequest } from "../runtime_contract.mjs";
+
+function fullTeam(overrides = {}) {
+  return {
+    instance_id: "team_ice_001",
+    card_id: "card_ice_warrior_001",
+    name: "冰原战士",
+    quality: 4,
+    profession: "战士",
+    gender: "男",
+    race: "人族",
+    personality: "勇敢",
+    attributes: { strength: 15, agility: 9, intelligence: 6, constitution: 14, physique: 14, dexterity: 8, perception: 10, knowledge: 6, survival: 13, social: 5, authority: 10, deception: 3 },
+    ...overrides
+  };
+}
+
+function validTeamPayload(members) {
+  return {
+    current_team: members.map(member => fullTeam(member))
+  };
+}
 
 function validRequest(overrides = {}) {
   return {
@@ -386,6 +407,137 @@ describe("server routes", () => {
       assert.equal(second.status, 409);
       assert.equal(payload.error.code, "REQUEST_NOT_REPLAYABLE");
       assert.equal(payload.error.details.status, "completed");
+    } finally { await close(server); }
+  });
+});
+
+describe("current_team validation and prompt injection", () => {
+  it("顶层 current_team 出现在 user prompt 中(队员名/职业/属性都被注入)", () => {
+    const team = validTeamPayload([
+      { instance_id: "team_ice_001", name: "冰原战士", profession: "战士", quality: 4, race: "人族" },
+      { instance_id: "team_mage_001", name: "星穹法师", profession: "法师", quality: 5, race: "人族" }
+    ]);
+    const prepared = preparePromptFromRequest({ ...validRequest(), ...team });
+    const userPrompt = prepared.messages.find(m => m.role === "user").content;
+    assert.match(userPrompt, /current_team:/);
+    assert.match(userPrompt, /name: "冰原战士"/);
+    assert.match(userPrompt, /name: "星穹法师"/);
+    assert.match(userPrompt, /profession: "战士"/);
+    assert.match(userPrompt, /attributes: \{[^}]*strength: 15/);
+    assert.match(userPrompt, /instance_id: "team_ice_001"/);
+    assert.equal(prepared.currentTeamSource, "top_level");
+    assert.equal(prepared.currentTeam.length, 2);
+  });
+
+  it("runtime_yaml 中已有 current_team: 块时,被识别为 runtime_yaml_string 来源", () => {
+    const yamlWithTeam = `template: 新一轮事件
+user_input: x
+current_team:
+  - name: "孤狼"
+    quality: 3
+    profession: "猎人"
+    gender: "男"
+    race: "人族"
+    personality: "沉默"
+    instance_id: "a1"
+    card_id: "c1"
+    attributes: {strength: 10, agility: 10, intelligence: 10, constitution: 10, physique: 10, dexterity: 10, perception: 10, knowledge: 10, survival: 10, social: 10, authority: 10, deception: 10}
+`;
+    const prepared = preparePromptFromRequest(validRequest({ runtime_yaml: yamlWithTeam }));
+    assert.equal(prepared.currentTeamSource, "runtime_yaml_string");
+    assert.equal(prepared.currentTeam, null);
+  });
+
+  it("缺 current_team 时不抛错,但 currentTeamSource='missing'", () => {
+    const prepared = preparePromptFromRequest(validRequest());
+    assert.equal(prepared.currentTeamSource, "missing");
+    assert.equal(prepared.currentTeam, null);
+  });
+
+  it("顶层 current_team 覆盖 runtime_yaml 里的 current_team 块", () => {
+    const yamlWithOldTeam = `template: x
+current_team:
+  - name: "旧队员"
+    quality: 1
+    profession: "x"
+    gender: "x"
+    race: "x"
+    personality: "x"
+    instance_id: "old"
+    card_id: "old_card"
+    attributes: {strength: 0, agility: 0, intelligence: 0, constitution: 0, physique: 0, dexterity: 0, perception: 0, knowledge: 0, survival: 0, social: 0, authority: 0, deception: 0}
+`;
+    const team = validTeamPayload([{ name: "新队员", instance_id: "new", card_id: "new_card" }]);
+    const prepared = preparePromptFromRequest({
+      ...validRequest({ runtime_yaml: yamlWithOldTeam }),
+      ...team
+    });
+    const userPrompt = prepared.messages.find(m => m.role === "user").content;
+    assert.match(userPrompt, /name: "新队员"/);
+    assert.doesNotMatch(userPrompt, /name: "旧队员"/);
+  });
+
+  it("非法 current_team(空数组)直接抛错,不让请求到达 AI", () => {
+    assert.throws(
+      () => preparePromptFromRequest(validRequest({ ...validTeamPayload([]) })),
+      /current_team必须包含1-4名队员/
+    );
+  });
+
+  it("非法 current_team(5人)直接抛错", () => {
+    const oversized = [1, 2, 3, 4, 5].map(i => fullTeam({ instance_id: `m${i}`, name: `人${i}`, card_id: `c${i}` }));
+    assert.throws(
+      () => preparePromptFromRequest(validRequest({ current_team: oversized })),
+      /current_team必须包含1-4名队员/
+    );
+  });
+
+  it("属性越界(>20)直接抛错,而不是让 AI 拿到非法数据", () => {
+    const bad = [fullTeam({ name: "高力量人", attributes: { strength: 99, agility: 0, intelligence: 0, constitution: 0, physique: 0, dexterity: 0, perception: 0, knowledge: 0, survival: 0, social: 0, authority: 0, deception: 0 } })];
+    assert.throws(
+      () => preparePromptFromRequest(validRequest({ current_team: bad })),
+      /attributes\.strength/
+    );
+  });
+
+  it("队员 name 重复直接抛错", () => {
+    const team = [fullTeam({ name: "小王" }), fullTeam({ name: "小王", instance_id: "b" })];
+    assert.throws(
+      () => preparePromptFromRequest(validRequest({ current_team: team })),
+      /name重复/
+    );
+  });
+
+  it("端到端:HTTP /api/chat 把顶层 current_team 完整转给 AI", async () => {
+    let receivedMessages;
+    const client = { chat: { completions: { create: async function* (request) {
+      receivedMessages = request.messages;
+      yield { choices: [{ delta: { content: "event_details:\n  template_name: \"新一轮事件\"\n" } }] };
+    } } } };
+    const { server, base } = await startTestServer({ client });
+    try {
+      // 故意用一个非默认值(intelligence=18)的法师来验证 attributes 完整转发
+      const mage = fullTeam({
+        name: "星穹法师",
+        instance_id: "team_mage_001",
+        card_id: "card_star_mage_001",
+        profession: "法师",
+        attributes: { strength: 3, agility: 8, intelligence: 18, constitution: 7, physique: 6, dexterity: 12, perception: 13, knowledge: 15, survival: 5, social: 9, authority: 7, deception: 8 }
+      });
+      const response = await fetch(`${base}/api/chat`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...validRequest(), current_team: [mage] })
+      });
+      await response.text();
+      assert.equal(response.status, 200);
+      const userPrompt = receivedMessages[1].content;
+      assert.match(userPrompt, /current_team:/);
+      assert.match(userPrompt, /name: "星穹法师"/);
+      assert.match(userPrompt, /profession: "法师"/);
+      assert.match(userPrompt, /attributes: \{[^}]*intelligence: 18/);
+      assert.match(userPrompt, /attributes: \{[^}]*knowledge: 15/);
+      assert.match(userPrompt, /instance_id: "team_mage_001"/);
     } finally { await close(server); }
   });
 });
