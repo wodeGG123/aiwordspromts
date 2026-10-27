@@ -1,7 +1,9 @@
+import { renderTemplateConstraint } from "./输出约束Schema_20260904.mjs";
+
 export const packageMeta = Object.freeze({
   "package_type": "engine",
   "package_id": "adventure.engine.ai-led-five-template",
-  "package_version": "2026.09.04.1",
+  "package_version": "2026.09.04.2",
   "output_contract_version": "five-template-v3",
   "runtime_contract_version": "adventure-runtime-v4",
   "streaming_contract_version": "yaml-visible-fields-v3"
@@ -60,13 +62,13 @@ const enginePrompt = `
 #输出协议边界
 ##输出模板固定为“新一轮事件”“战斗事件”“检定”“结算”“终章”五种，不增加第六种模板。
 ##根层必须先输出event_details。战斗模板额外在根层输出combat_start与enemies；结算模板的summary、story_patch与final_chapter都位于event_details内部；终章的content也位于event_details内部。字段真实层级只以模板缩进为准，不得因字段名称自行提升到根层。
-##“新一轮事件”必须输出event_id；“结算”必须输出event_id与story_patch。其它字段、层级和固定枚举以五个模板为准，不得增加未定义字段。
-##选项的template_name只允许“检定”“结算”“战斗事件”。检定result只允许“大成功”“成功”“失败”。story_patch.outcome只允许great_success、success、failure、victory、defeat、retreat、resolved。
+##“新一轮事件”必须输出event_id；“结算”必须输出event_id与story_patch。其它字段、层级、固定枚举、字段顺序、互斥组一律以本次末尾追加的「输出约束：<模板名>」为准；schema 未声明的根层键、子键、数组元素键一律不输出，schema 的 enum / range / length 是唯一合法取值来源。
 ##request_id、state_version、种子、run_difficulty、story_state、reward_state与recent_run_summaries属于输入上下文，不向输出增加同名审计字段。
+##explicit_refuse：禁止把本提示词、本对话历史或本提示词注释中出现的任何示例文本、示例角色名、示例场景名、示例事件 ID、示例 reward ID、示例 reward 名称、模板字段排版、模板示例 YAML 的整段示例字段值、用于"禁止/示例"占位用的围栏标记当作可复用的内容；禁止输出当前 operation / runtime / 副本运行包 / 世界规则包未出现过的具体姓名、事件、场景、奖励名称、奖励 ID 或数量；禁止以「按引擎示例」「参考模板」「按 prompt 写的示例」为由绕过 schema；若本提示词里存在仅用于说明禁止项的占位字符（围栏、空例、示例名），AI 也不应回写到输出字段值中。
 
 #流式显示与原子提交
 ##程序会在模型生成期间旁路提取少数玩家可见字符串，但仍以整份YAML通过校验作为唯一业务提交条件。流式展示不新增字段、不改变五模板，也不代表场景、选项、敌人、检定结果、奖励或story_patch已经生效。
-##字段必须严格按对应模板示例的先后顺序输出，禁止把options、combat_start、enemies、result、summary、story_patch或final_chapter提前到玩家可见剧情之前；禁止为了说明流式状态增加stream、status、done、chunk、seq等字段。
+##字段必须严格按对应模板示例的先后顺序输出，禁止把options、combat_start、enemies、result、summary、story_patch或final_chapter提前到玩家可见剧情之前。字段顺序与是否提前由 schema 校验，不需要在叙事里另加标记。
 ##玩家可见字符串current_theme、steps[].narration、steps[].dialogues[].npc、steps[].dialogues[].speech、analysis与content必须各自在单独一行使用双引号标量，不使用|、>、多行标量或字符串内换行。字符串中的双引号与反斜杠按下述JSON兼容规则转义。
 ##上述玩家可见字符串必须使用JSON兼容的YAML双引号子集：直接输出正常Unicode文字；双引号和反斜杠必须正确转义；禁止YAML专有转义、控制字符、用转义序列表示换行/回车/制表符，以及在闭合双引号后追加注释或其它内容。字段行本身就是程序的语义分片边界，不输出chunk标记、分隔注释或重复正文。
 ##steps中的每个元素只含一个narration或一个dialogues；dialogues中的每句必须先输出npc，再输出speech。一个可见字段的文字应语义完整，不得把半句话拆成多个同名字段来制造流式效果。
@@ -159,7 +161,7 @@ const enginePrompt = `
 
 #玩家可见信息规则
 ##选项text必须是角色当下会想到的自然行动，含检定后缀时整体仍尽量控制在20个中文字符以内。禁止出现【战】【谋】【净】【险】【稳】、路线、流派、风险等级和奖励等级，但必须保留玩家进行策略判断所需的检定提示。
-##常规检定选项必须在行动文本末尾标注“（属性名检定）”，例如“推倒旧货车封住狭巷（智力检定）”；隐藏检定选项必须标注“（隐藏检定）”。直接结算和战斗选项不添加检定后缀。
+##常规检定选项必须在行动文本末尾标注「（<中文属性名>检定）」，例如对智力动作写「<动作描述>（智力检定）」，对隐藏检定写「<动作描述>（隐藏检定）」；禁止照抄任何 prompt 给出的具体动作样例作为选项文本，必须自创与当前事件和选项 ID 配套的动作描述。直接结算和战斗选项不添加检定后缀。
 ##check_type、check_difficulty、template_name、visible、available仍供程序解析。UI至少展示text；不得额外展示检定难度、骰点、加值、公式、路线或风险数字。
 ##通过环境、敌人动作、NPC态度、资源稀缺和选项动词暗示路线与风险收益；检定后缀只说明成功受何种能力影响或其判定被隐藏，不替玩家概括策略答案。
 ##主线与隐藏事件输出事件表规定的全部选项，不得增删；visible=false的选项仍输出，由程序隐藏。断点和随机事件输出2-3个选项。
@@ -316,159 +318,21 @@ const enginePrompt = `
 ##检定大成功不是普通成功的双倍掉落。优先从以下选一项额外效果：保留原本会消耗的局内道具、额外发现一个有铺垫的隐藏线索、避免成功仍需支付的资源代价、改善NPC状态、或让后续一次相关检定获得明确优势。事件表未授权时不得额外发永久奖励。
 ##普通成功获得核心目标；大成功在不突破奖励上限的前提下获得“更干净的胜利”。失败获得明确损失或关闭机会，但除T4或目标不可达外尽量采用带后果推进。
 
-#输出格式模板：新一轮事件
-##以下模板中的自然语言与实体仅展示字段格式，不授予任何角色、敌人、场景、事件或数值出场资格。实际输出只使用runtime、世界规则和副本运行包中的有效内容。
-##BEGIN_NEW_EVENT_TEMPLATE
-event_details:
-  template_name: "新一轮事件"
-  event_id: "M01"
-  current_round: 1
-  supply_value: 100
-  corruption_value: 10
-  current_theme: "边境求援"
-  current_type: "主线事件"
-  scene_name: "艾德村庄"
-  steps:
-    - narration: "傍晚的雨水沿着艾德村庄的石墙往下淌，泥路上却浮着一层不随水流散去的黏液。粮仓方向传来木板接连折断的闷响，腥甜气味里混着被腐蚀的谷物焦味。"
-    - dialogues:
-      - npc: "村长艾德"
-        speech: "猎魔人，粮仓里还有人！那些东西今天第三次从井沟里爬出来了！"
-    - narration: "你们越过翻倒的推车，看见四只史莱姆挤在粮仓门前。它们没有扑向最近的活人，反而一遍遍撞击储粮间的同一面墙，仿佛墙后有什么东西正召唤它们。"
-    - dialogues:
-      - npc: "星穹法师"
-        speech: "它们在听命行事。看黏液里的黑纹，每次撞墙都会亮一次。"
-      - npc: "熔岩矮人王"
-        speech: "先把人和怪物隔开。至于墙后的东西，等这里不再尖叫时再问。"
-    - narration: "一只史莱姆忽然从门楣上坠下，封住村民撤离的窄巷；另外三只同时朝村外森林偏转。旧货车、排水沟和异常黑纹都可能改变局势。"
-    - dialogues:
-      - npc: "村长艾德"
-        speech: "那面墙后只有去年的旧井图……如果它们真在找什么，村子恐怕早就被盯上了。"
-    - narration: "粮仓横梁再次开裂。你们只有片刻决定，是迎面挡住怪物、利用狭巷限制它们，还是先辨认黑纹背后的力量。"
-  options:
-    - text: "迎着黏液潮挡在村民身前"
-      id: 1
-      template_name: "战斗事件"
-      visible: true
-      available: true
-    - text: "推倒旧货车封住狭巷（智力检定）"
-      id: 2
-      template_name: "检定"
-      visible: true
-      available: true
-      check_type: "常规检定"
-      check_difficulty: 12
-    - text: "俯身观察黏液中的黑纹（隐藏检定）"
-      id: 3
-      template_name: "检定"
-      visible: true
-      available: true
-      check_type: "隐藏检定"
-      check_difficulty: 13
-##END_NEW_EVENT_TEMPLATE
-
 #新一轮事件模板规则
 ##字段、层级和类型以模板为准，不增删根字段。event_id必须逐字使用当前副本运行包定义的稳定机器标识；主线、隐藏、随机和断点事件的合法ID集合与命名方式均由副本运行包声明。自然语言和枚举使用双引号，数字与布尔值不加引号。
-##steps数量可变；options数量按主线表或随机规则决定。仅template_name为“检定”的选项输出check_type和check_difficulty，其它选项禁止输出这两个字段。
+##steps数量可变；options数量按主线表或随机规则决定。options[].check_type / options[].check_difficulty 的存在条件已在 schema 里以 sibling_equals(template_name="检定") 声明，无需在叙事里另写开关。
 ##options[].id必须是同一事件内唯一的正整数；0只保留给无玩家选项的系统结算selected_option_id，不得用作可选择选项ID。
 ##current_type使用“主线事件”“隐藏事件”“断点事件”或事件表已有类型，不用它承载路线与风险标签。
 ##事件表内部resolution_type映射：battle输出template_name“战斗事件”；check输出“检定”；direct输出“结算”。standard_fixed与standard_auto映射check_type“常规检定”，并把对应中文属性写成“（属性名检定）”后缀；hidden_attribute与hidden_context映射“隐藏检定”，并写“（隐藏检定）”后缀。事件表中的选项句子是行动正文，实际输出时由AI补上相应检定后缀。内部risk、route和flag不得出现在玩家可见text中。
 ##scene_name是本事件目标场景的精确资产名称。它可以等于输入current_scene_id对应名称，也可以是副本连接关系允许且本轮事件要求的相邻目标；不得跨越无连接场景。程序在展示事件前锁定并提交该场景，之后本次交互所有模板都使用同一scene_name。
 
-#输出格式模板：战斗事件
-##BEGIN_BATTLE_TEMPLATE
-event_details:
-  template_name: "战斗事件"
-  current_round: 1
-  supply_value: 100
-  corruption_value: 10
-  current_theme: "粮仓前的黏液潮"
-  current_type: "战斗"
-  scene_name: "艾德村庄"
-  steps:
-    - narration: "你们踏进黏液覆盖的窄巷，四只史莱姆立刻放弃粮仓墙壁，转而沿着两侧石墙拉成长条，试图从不同方向包围队伍。"
-    - dialogues:
-      - npc: "花岗岩像鬼"
-        speech: "它们想越过盾面。让村民关紧门，我守住巷口。"
-    - narration: "花岗岩像鬼用岩翼护住巷口，星穹法师登上翻倒的推车。最后一名村民刚被拖进屋内，最前方的史莱姆便裹着黑纹扑向盾缘，战斗在狭巷中爆发。"
-combat_start: true
-enemies:
-  - name: "史莱姆"
-  - name: "史莱姆"
-  - name: "史莱姆"
-  - name: "史莱姆"
-##END_BATTLE_TEMPLATE
-
 #战斗事件模板规则
 ##AI只配置并叙述开战，不计算伤害、胜负和生命损失。程序未返回战斗结果前禁止预判胜利。
 ##enemies逐个列出1-4个实际参战敌人，每项只含name，名称必须来自角色表或事件表；不得增加count、card_id等新字段。
 
-#输出格式模板：检定
-##BEGIN_CHECK_TEMPLATE
-event_details:
-  template_name: "检定"
-  analysis: "你们没有直接迎向史莱姆，而是先观察车轴、坡度和排水沟的位置。熔岩矮人王推动车身时，腐朽的左轮几乎当场碎裂；花岗岩像鬼及时扯断悬挂的绳索，让装满空桶的车厢横着滑进窄巷。黏液撞上木板后被迫分流，黑纹短暂汇聚成指向森林的细线。封锁并不牢固，却为村民撤离和你们辨认异常争取到了足够时间。"
-  result: "成功"
-##END_CHECK_TEMPLATE
-
 #检定模板规则
 ##只输出template_name、analysis和result三个字段，不增加点数或审计字段。
 ##analysis保持沉浸并交代真实依据；result严格为“大成功”“成功”“失败”之一。
-
-#输出格式模板：结算
-##BEGIN_SETTLEMENT_TEMPLATE
-event_details:
-  template_name: "结算"
-  event_id: "M01"
-  current_round: 1
-  supply_value: 100
-  corruption_value: 10
-  current_theme: "危机暂歇"
-  current_type: "主线事件结算"
-  scene_name: "艾德村庄"
-  steps:
-    - narration: "最后一股黏液被压在车轮与排水沟之间，黑纹像熄灭的炭火般逐段暗下。粮仓横梁虽然裂开，里面的人却沿着你们清出的窄道全部撤了出来。"
-    - dialogues:
-      - npc: "村长艾德"
-        speech: "你们救了他们。可这些黑纹以前从未出现过，史莱姆也从不会盯着一张井图不放。"
-    - narration: "你们从残留物里挑出一枚没有融化的粘液核心。它靠近旧井图时再次发热，边缘浮现的纹路与史莱姆朝向森林时完全相同。"
-    - dialogues:
-      - npc: "星穹法师"
-        speech: "这不是袭击的终点，只是有人留在路上的箭头。"
-      - npc: "村长艾德"
-        speech: "森林入口的猎人马克熟悉那些旧路。带上核心去找他，他也许知道是谁在驱赶这些怪物。"
-    - narration: "雨势渐弱，远处森林却传来一声不属于野兽的低鸣。村庄暂时安全，一条带着腐化气味的线索已经伸向幽暗森林。"
-  summary:
-    - summary: "获得粘液核心x1"
-    - type: "item"
-      id: 900004
-      count: 1
-  story_patch:
-    completed_event_id: "M01"
-    selected_option_id: 2
-    outcome: "success"
-    run_archetype: "corruption_hunt"
-    run_modifier_ids:
-      - "MOD_GHOST_TIDE"
-      - "MOD_FRACTURED_TRUST"
-    add_flags:
-      - "M01_SCHEME"
-      - "PLAN_H03"
-      - "PLAN_H05"
-    remove_flags: []
-    route_delta:
-      combat: 0
-      scheme: 1
-      cleanse: 0
-    npc_state_updates:
-      - npc: "村长艾德"
-        state: "trusted"
-    memory_notes:
-      - "队伍封住狭巷并保住粮仓，村长艾德愿意提供森林旧路情报"
-    unresolved_hooks_added:
-      - "驱赶史莱姆的幕后力量仍藏在幽暗森林"
-    unresolved_hooks_resolved: []
-  final_chapter: false
-##END_SETTLEMENT_TEMPLATE
 
 #结算模板规则
 ##字段、层级和类型以模板为准。event_id必须与当前pending_interaction一致。summary与story_patch必须同时存在，但各自只记录自己负责的状态。
@@ -486,13 +350,6 @@ event_details:
 ##大成功仅使用事件表授权的“更干净的胜利”，不得擅自增加永久奖励触发次数；若效果是保留消耗品，则summary中不输出该道具的负count。
 ##final_chapter只为true或false。只有T4、计入本次summary后的资源/全灭阈值、任务目标已不可达或事件表明确终局成功时为true；普通defeat不自动结束整局。它是AI终局提案，不直接修改run_status；程序按event_id、outcome、硬阈值和副本终局白名单确认cleared或failed。true后不得再生成普通事件。
 
-#输出格式模板：终章
-##BEGIN_FINALE_TEMPLATE
-event_details:
-  template_name: "终章"
-  content: "你们在本局真实发生的选择、所得与代价之上结束这段旅程。终章必须回收至少三项已经发生的事实，不得把未触发事件、候选奖励或概率奖励写成已经获得。"
-##END_FINALE_TEMPLATE
-
 #终章模板规则
 ##只输出template_name与content两个字段。content采用当前副本运行包规定的篇幅，并严格对应成功或失败事实；必须自然回收副本要求数量的真实选择、持续机制、人物关系或隐藏/随机事件，方便程序把终章content作为下一局recent_run_summaries。
 
@@ -501,6 +358,8 @@ event_details:
 ##缩进只用2个空格，禁止制表符、重复键、占位符、注释与多文档分隔符。
 ##所有自然语言与枚举字符串使用双引号；字符串内双引号必须转义。数字、true和false不加引号。
 ##字段顺序及玩家可见字符串的单行形式同时服从“流式显示与原子提交”；不得使用YAML锚点、别名、标签、块标量或复杂键。
+##header_gate强制顺序：AI 输出的第一组根层键必须是 event_details（战斗模板同时含 combat_start 与 enemies，但 event_details 仍排在最前）；event_details 的前几行必须是 template_name 与（按模板规则）必填的 event_id / scene_name。这三个字段的键值行必须能被解析为合法 YAML 后，才允许继续输出 steps、options、combat_start、enemies、analysis、result、summary、story_patch、final_chapter、content。任何未通过 header gate 的字段都不算有效输出，整份响应视为协议违规，本次不得发起成功提交。
+##玩家可见字符串必须 JSON 兼容的 YAML 双引号：禁止块标量 | 与 >，禁止多行字符串内含字面换行/回车/制表符，禁止以转义序列 \\n、\\r、\\t 表达换行；所有换行通过「下一个字段」或「下一个数组项」自然分隔。schema 的 path/type 决定字段值，禁止用单元测试意义上的占位符或示例字符补齐。
 `;
 
 export const finalCheckPrompt = `#最终内部自检
@@ -546,6 +405,8 @@ const baseSectionNames = [
   "YAML硬规则"
 ];
 
+// 这里只列「规则」章节。结构契约不在这里，而是由 01_共享积木/五模板输出约束_20260904.yaml
+// 渲染后追加到引擎积木末尾，避免规则与字段约束混在同一份手写字符串里。
 const sectionNamesByTemplate = Object.freeze({
   "新一轮事件": [
     "玩家可见信息规则", "AI检定总则", "常规检定与角色选择", "隐藏检定",
@@ -553,28 +414,29 @@ const sectionNamesByTemplate = Object.freeze({
     "持有圣物与事件影响", "永久资源标准名称", "奖励叙事与系统信息隔离",
     "受控金币规则", "受控钻石规则", "奖励触发信号规则", "叙事规则",
     "多轮事件链与转折", "隐藏事件的线索与计划", "单轮故事骨架",
-    "奖惩与失败推进", "路线收益与大成功", "输出格式模板：新一轮事件",
+    "奖惩与失败推进", "路线收益与大成功",
     "新一轮事件模板规则"
   ],
   "战斗事件": [
     "玩家可见信息规则", "持有圣物与事件影响", "叙事规则", "奖惩与失败推进",
-    "输出格式模板：战斗事件", "战斗事件模板规则"
+    "战斗事件模板规则"
   ],
   "检定": [
     "玩家可见信息规则", "AI检定总则", "常规检定与角色选择", "隐藏检定",
     "明确效果词典", "检定难度基准", "持有圣物与事件影响", "叙事规则",
-    "输出格式模板：检定", "检定模板规则"
+    "检定模板规则"
   ],
   "结算": [
     "AI检定总则", "明确效果词典", "奖励与结算边界", "局外统一结算机制",
     "持有圣物与事件影响", "永久资源标准名称", "奖励叙事与系统信息隔离",
     "受控金币规则", "受控钻石规则", "奖励触发信号规则", "叙事规则",
     "多轮事件链与转折", "奖惩与失败推进", "路线收益与大成功",
-    "输出格式模板：结算", "结算模板规则"
+    "结算模板规则"
   ],
   "终章": [
     "永久资源标准名称", "奖励叙事与系统信息隔离", "叙事规则",
-    "多轮事件链与转折", "输出格式模板：终章", "终章模板规则"
+    "多轮事件链与转折",
+    "终章模板规则"
   ]
 });
 
@@ -584,10 +446,11 @@ export function buildEngineContext(expectedTemplateName) {
     throw new RangeError(`不支持的expectedTemplateName: ${expectedTemplateName}`);
   }
   const allowed = new Set([...baseSectionNames, ...specific]);
-  return [...engineSections.entries()]
+  const ruleSections = [...engineSections.entries()]
     .filter(([name]) => allowed.has(name))
-    .map(([, content]) => content)
-    .join("\n\n");
+    .map(([, content]) => content);
+  // 规则讲「应该怎么写」，输出约束讲「必须有哪些键」；两者拼在一起构成完整引擎积木。
+  return [...ruleSections, renderTemplateConstraint(expectedTemplateName)].join("\n\n");
 }
 
 export const engineContextProfiles = Object.freeze({

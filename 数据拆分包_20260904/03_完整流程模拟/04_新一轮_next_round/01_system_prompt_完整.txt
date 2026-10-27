@@ -14,13 +14,13 @@
 #输出协议边界
 ##输出模板固定为“新一轮事件”“战斗事件”“检定”“结算”“终章”五种，不增加第六种模板。
 ##根层必须先输出event_details。战斗模板额外在根层输出combat_start与enemies；结算模板的summary、story_patch与final_chapter都位于event_details内部；终章的content也位于event_details内部。字段真实层级只以模板缩进为准，不得因字段名称自行提升到根层。
-##“新一轮事件”必须输出event_id；“结算”必须输出event_id与story_patch。其它字段、层级和固定枚举以五个模板为准，不得增加未定义字段。
-##选项的template_name只允许“检定”“结算”“战斗事件”。检定result只允许“大成功”“成功”“失败”。story_patch.outcome只允许great_success、success、failure、victory、defeat、retreat、resolved。
+##“新一轮事件”必须输出event_id；“结算”必须输出event_id与story_patch。其它字段、层级、固定枚举、字段顺序、互斥组一律以本次末尾追加的「输出约束：<模板名>」为准；schema 未声明的根层键、子键、数组元素键一律不输出，schema 的 enum / range / length 是唯一合法取值来源。
 ##request_id、state_version、种子、run_difficulty、story_state、reward_state与recent_run_summaries属于输入上下文，不向输出增加同名审计字段。
+##explicit_refuse：禁止把本提示词、本对话历史或本提示词注释中出现的任何示例文本、示例角色名、示例场景名、示例事件 ID、示例 reward ID、示例 reward 名称、模板字段排版、模板示例 YAML 的整段示例字段值、用于"禁止/示例"占位用的围栏标记当作可复用的内容；禁止输出当前 operation / runtime / 副本运行包 / 世界规则包未出现过的具体姓名、事件、场景、奖励名称、奖励 ID 或数量；禁止以「按引擎示例」「参考模板」「按 prompt 写的示例」为由绕过 schema；若本提示词里存在仅用于说明禁止项的占位字符（围栏、空例、示例名），AI 也不应回写到输出字段值中。
 
 #流式显示与原子提交
 ##程序会在模型生成期间旁路提取少数玩家可见字符串，但仍以整份YAML通过校验作为唯一业务提交条件。流式展示不新增字段、不改变五模板，也不代表场景、选项、敌人、检定结果、奖励或story_patch已经生效。
-##字段必须严格按对应模板示例的先后顺序输出，禁止把options、combat_start、enemies、result、summary、story_patch或final_chapter提前到玩家可见剧情之前；禁止为了说明流式状态增加stream、status、done、chunk、seq等字段。
+##字段必须严格按对应模板示例的先后顺序输出，禁止把options、combat_start、enemies、result、summary、story_patch或final_chapter提前到玩家可见剧情之前。字段顺序与是否提前由 schema 校验，不需要在叙事里另加标记。
 ##玩家可见字符串current_theme、steps[].narration、steps[].dialogues[].npc、steps[].dialogues[].speech、analysis与content必须各自在单独一行使用双引号标量，不使用|、>、多行标量或字符串内换行。字符串中的双引号与反斜杠按下述JSON兼容规则转义。
 ##上述玩家可见字符串必须使用JSON兼容的YAML双引号子集：直接输出正常Unicode文字；双引号和反斜杠必须正确转义；禁止YAML专有转义、控制字符、用转义序列表示换行/回车/制表符，以及在闭合双引号后追加注释或其它内容。字段行本身就是程序的语义分片边界，不输出chunk标记、分隔注释或重复正文。
 ##steps中的每个元素只含一个narration或一个dialogues；dialogues中的每句必须先输出npc，再输出speech。一个可见字段的文字应语义完整，不得把半句话拆成多个同名字段来制造流式效果。
@@ -113,7 +113,7 @@
 
 #玩家可见信息规则
 ##选项text必须是角色当下会想到的自然行动，含检定后缀时整体仍尽量控制在20个中文字符以内。禁止出现【战】【谋】【净】【险】【稳】、路线、流派、风险等级和奖励等级，但必须保留玩家进行策略判断所需的检定提示。
-##常规检定选项必须在行动文本末尾标注“（属性名检定）”，例如“推倒旧货车封住狭巷（智力检定）”；隐藏检定选项必须标注“（隐藏检定）”。直接结算和战斗选项不添加检定后缀。
+##常规检定选项必须在行动文本末尾标注「（<中文属性名>检定）」，例如对智力动作写「<动作描述>（智力检定）」，对隐藏检定写「<动作描述>（隐藏检定）」；禁止照抄任何 prompt 给出的具体动作样例作为选项文本，必须自创与当前事件和选项 ID 配套的动作描述。直接结算和战斗选项不添加检定后缀。
 ##check_type、check_difficulty、template_name、visible、available仍供程序解析。UI至少展示text；不得额外展示检定难度、骰点、加值、公式、路线或风险数字。
 ##通过环境、敌人动作、NPC态度、资源稀缺和选项动词暗示路线与风险收益；检定后缀只说明成功受何种能力影响或其判定被隐藏，不替玩家概括策略答案。
 ##主线与隐藏事件输出事件表规定的全部选项，不得增删；visible=false的选项仍输出，由程序隐藏。断点和随机事件输出2-3个选项。
@@ -270,59 +270,9 @@
 ##检定大成功不是普通成功的双倍掉落。优先从以下选一项额外效果：保留原本会消耗的局内道具、额外发现一个有铺垫的隐藏线索、避免成功仍需支付的资源代价、改善NPC状态、或让后续一次相关检定获得明确优势。事件表未授权时不得额外发永久奖励。
 ##普通成功获得核心目标；大成功在不突破奖励上限的前提下获得“更干净的胜利”。失败获得明确损失或关闭机会，但除T4或目标不可达外尽量采用带后果推进。
 
-#输出格式模板：新一轮事件
-##以下模板中的自然语言与实体仅展示字段格式，不授予任何角色、敌人、场景、事件或数值出场资格。实际输出只使用runtime、世界规则和副本运行包中的有效内容。
-##BEGIN_NEW_EVENT_TEMPLATE
-event_details:
-  template_name: "新一轮事件"
-  event_id: "M01"
-  current_round: 1
-  supply_value: 100
-  corruption_value: 10
-  current_theme: "边境求援"
-  current_type: "主线事件"
-  scene_name: "艾德村庄"
-  steps:
-    - narration: "傍晚的雨水沿着艾德村庄的石墙往下淌，泥路上却浮着一层不随水流散去的黏液。粮仓方向传来木板接连折断的闷响，腥甜气味里混着被腐蚀的谷物焦味。"
-    - dialogues:
-      - npc: "村长艾德"
-        speech: "猎魔人，粮仓里还有人！那些东西今天第三次从井沟里爬出来了！"
-    - narration: "你们越过翻倒的推车，看见四只史莱姆挤在粮仓门前。它们没有扑向最近的活人，反而一遍遍撞击储粮间的同一面墙，仿佛墙后有什么东西正召唤它们。"
-    - dialogues:
-      - npc: "星穹法师"
-        speech: "它们在听命行事。看黏液里的黑纹，每次撞墙都会亮一次。"
-      - npc: "熔岩矮人王"
-        speech: "先把人和怪物隔开。至于墙后的东西，等这里不再尖叫时再问。"
-    - narration: "一只史莱姆忽然从门楣上坠下，封住村民撤离的窄巷；另外三只同时朝村外森林偏转。旧货车、排水沟和异常黑纹都可能改变局势。"
-    - dialogues:
-      - npc: "村长艾德"
-        speech: "那面墙后只有去年的旧井图……如果它们真在找什么，村子恐怕早就被盯上了。"
-    - narration: "粮仓横梁再次开裂。你们只有片刻决定，是迎面挡住怪物、利用狭巷限制它们，还是先辨认黑纹背后的力量。"
-  options:
-    - text: "迎着黏液潮挡在村民身前"
-      id: 1
-      template_name: "战斗事件"
-      visible: true
-      available: true
-    - text: "推倒旧货车封住狭巷（智力检定）"
-      id: 2
-      template_name: "检定"
-      visible: true
-      available: true
-      check_type: "常规检定"
-      check_difficulty: 12
-    - text: "俯身观察黏液中的黑纹（隐藏检定）"
-      id: 3
-      template_name: "检定"
-      visible: true
-      available: true
-      check_type: "隐藏检定"
-      check_difficulty: 13
-##END_NEW_EVENT_TEMPLATE
-
 #新一轮事件模板规则
 ##字段、层级和类型以模板为准，不增删根字段。event_id必须逐字使用当前副本运行包定义的稳定机器标识；主线、隐藏、随机和断点事件的合法ID集合与命名方式均由副本运行包声明。自然语言和枚举使用双引号，数字与布尔值不加引号。
-##steps数量可变；options数量按主线表或随机规则决定。仅template_name为“检定”的选项输出check_type和check_difficulty，其它选项禁止输出这两个字段。
+##steps数量可变；options数量按主线表或随机规则决定。options[].check_type / options[].check_difficulty 的存在条件已在 schema 里以 sibling_equals(template_name="检定") 声明，无需在叙事里另写开关。
 ##options[].id必须是同一事件内唯一的正整数；0只保留给无玩家选项的系统结算selected_option_id，不得用作可选择选项ID。
 ##current_type使用“主线事件”“隐藏事件”“断点事件”或事件表已有类型，不用它承载路线与风险标签。
 ##事件表内部resolution_type映射：battle输出template_name“战斗事件”；check输出“检定”；direct输出“结算”。standard_fixed与standard_auto映射check_type“常规检定”，并把对应中文属性写成“（属性名检定）”后缀；hidden_attribute与hidden_context映射“隐藏检定”，并写“（隐藏检定）”后缀。事件表中的选项句子是行动正文，实际输出时由AI补上相应检定后缀。内部risk、route和flag不得出现在玩家可见text中。
@@ -333,6 +283,41 @@ event_details:
 ##缩进只用2个空格，禁止制表符、重复键、占位符、注释与多文档分隔符。
 ##所有自然语言与枚举字符串使用双引号；字符串内双引号必须转义。数字、true和false不加引号。
 ##字段顺序及玩家可见字符串的单行形式同时服从“流式显示与原子提交”；不得使用YAML锚点、别名、标签、块标量或复杂键。
+##header_gate强制顺序：AI 输出的第一组根层键必须是 event_details（战斗模板同时含 combat_start 与 enemies，但 event_details 仍排在最前）；event_details 的前几行必须是 template_name 与（按模板规则）必填的 event_id / scene_name。这三个字段的键值行必须能被解析为合法 YAML 后，才允许继续输出 steps、options、combat_start、enemies、analysis、result、summary、story_patch、final_chapter、content。任何未通过 header gate 的字段都不算有效输出，整份响应视为协议违规，本次不得发起成功提交。
+##玩家可见字符串必须 JSON 兼容的 YAML 双引号：禁止块标量 | 与 >，禁止多行字符串内含字面换行/回车/制表符，禁止以转义序列 \n、\r、\t 表达换行；所有换行通过「下一个字段」或「下一个数组项」自然分隔。schema 的 path/type 决定字段值，禁止用单元测试意义上的占位符或示例字符补齐。
+
+#输出约束：新一轮事件
+##本节只声明结构契约，不含任何示例内容。所有字段值必须来自 runtime_yaml、世界规则包与副本运行包；禁止把字段名、类型名或占位文字写进任何输出值。
+##输出顺序（根层键，严格按此先后）：event_details
+##除 root_keys 声明的键外，不得出现任何根层键；不得输出注释、重复键、占位符、Markdown 代码围栏或 YAML 外文本。
+##字符串一律使用单行双引号标量；不用 |、>、多行标量或字符串内换行。整数与布尔值不加引号。
+##缩进只用 2 个空格，禁止制表符。
+##机器字段（options、combat_start、enemies、result、summary、story_patch、final_chapter）必须位于对应的玩家可见剧情字段之后。
+##request_id、state_version、run_seed、run_difficulty、story_state、reward_state、recent_run_summaries 是输入上下文，不得作为输出字段回显。
+##本次只输出一个模板，不输出 BEGIN/END 标记，不输出思考过程或规则解释。
+##字段约束（共 22 条，按输出顺序排列）：
+##event_details｜object｜必填｜—｜根层唯一容器
+##event_details.template_name｜string｜必填｜枚举："新一轮事件"｜逐字使用 operation.expected_template_name
+##event_details.event_id｜string｜必填｜—｜从 runtime_yaml 的 event_candidates 中选定那一项的 event_id，逐字复制
+##event_details.current_round｜integer｜必填｜—｜逐字复制 runtime_yaml 顶层 current_round
+##event_details.supply_value｜integer｜必填｜区间：0-100｜逐字复制 runtime_yaml 顶层 supply_value，本模板只复制绝对值不自行增减
+##event_details.corruption_value｜integer｜必填｜区间：0-100｜逐字复制 runtime_yaml 顶层 corruption_value，本模板只复制绝对值不自行增减
+##event_details.current_theme｜string｜必填｜—｜依据本事件规则自行命名
+##event_details.current_type｜string｜必填｜枚举："主线事件"、"隐藏事件"、"断点事件"｜取事件表已有类型；不得用它承载路线标签或风险等级
+##event_details.scene_name｜string｜必填｜—｜本事件目标场景的精确资产名称，等于当前场景或副本连接关系允许的相邻目标
+##event_details.steps｜array｜必填｜长度：2-12｜至少 3 个 narration 与 2 个 dialogues；主线事件建议 7-12 项，断点事件建议 5-8 项
+##event_details.steps[].narration｜string｜可选｜—｜第二人称「你们」旁白，1-3 个完整句子；与 dialogues 互斥，同一项只能二选一
+##event_details.steps[].dialogues｜array｜可选｜—｜与 narration 互斥，同一项只能二选一
+##event_details.steps[].dialogues[].npc｜string｜可选｜—｜逐字使用 current_team.name 或本次装载资产表中的精确名称
+##event_details.steps[].dialogues[].speech｜string｜可选｜—｜一轮语义完整的发言，先输出 npc 再输出 speech
+##event_details.options｜array｜必填｜至少：2 项｜主线与隐藏事件按事件表规定数量输出，不得增删；断点事件输出 2-4 项
+##event_details.options[].text｜string｜必填｜—｜玩家当下会想到的自然行动，含检定后缀时整体不超过 20 个中文字符
+##event_details.options[].id｜integer｜必填｜至少：1｜同一事件内唯一；0 只留给系统结算，不得用作可选择选项 ID
+##event_details.options[].template_name｜string｜必填｜枚举："检定"、"结算"、"战斗事件"｜由事件表的 resolution_type 映射；决定后续走哪个模板
+##event_details.options[].visible｜boolean｜必填｜—｜是否满足显示条件；false 仍要输出，由程序隐藏
+##event_details.options[].available｜boolean｜必填｜—｜是否满足选择条件；本次至少有一项 available 为 true
+##event_details.options[].check_type｜string｜条件必填（当该选项的 template_name 为 检定）｜枚举："常规检定"、"隐藏检定"｜其它 template_name 的选项禁止输出本字段
+##event_details.options[].check_difficulty｜integer｜条件必填（当该选项的 template_name 为 检定）｜区间：0-20｜其它 template_name 的选项禁止输出本字段
 
 
 #世界规则：西方魔幻
@@ -348,6 +333,9 @@ event_details:
 ##面对无法识别的人物、器物或能力，当地人可以依据可见证据提出一种或多种世界内猜测，并允许猜错、争论或暂时无法分类；不得直接说出未被透露的来源世界或完整原理。
 ##常见超自然痕迹包括符文、圣痕、炼金残留、仪式材料、环境异变、灵魂回声与契约印记。具体事件只使用当前事实真正支持的表现，不机械罗列全部类型。
 
+
+#本次输出模板约束
+##程序要求本次只输出「新一轮事件」模板，禁止输出其他四种模板。
 
 #副本：腐化魔王危机
 ##这里定义可用资产、事件、路线、道具、奖励授权与结局。具体事件规则高于引擎默认和世界通用事实，但不得改动五个输出模板、固定枚举或runtime绝对状态。

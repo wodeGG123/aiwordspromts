@@ -1,0 +1,473 @@
+# 五模板输出约束（单一真源）
+#
+# 本文件是 AI 输出结构契约的唯一真源：
+#   1. 服务端读取后渲染成逐字段约束文本，拼进 system prompt 替换旧模板 demo；
+#   2. 客户端读取同一份约束，校验 AI 输出的结构、类型、枚举与取值域。
+#
+# 与旧版模板 demo 的区别：
+#   旧版给出一份填好示例角色名、示例文本和示例 ID 的 YAML，AI 会照抄其中实体。
+#   本文件只声明「有哪些键、什么类型、是否必填、合法值是什么、值从哪来」，不含任何示例内容。
+#
+# 字段数组的顺序即 AI 的输出顺序，渲染与校验都以该顺序为准。
+# path 语法：a.b 逐层下钻；a[] 表示数组字段本身；a[].b 表示数组元素的子字段。
+
+schema_version: "2026.09.04.2"
+output_contract_version: "five-template-v3"
+engine_package_id: "adventure.engine.ai-led-five-template"
+source_package_version: "2026.09.04.2"
+
+# 渲染与校验共享的通用规则，随每个模板的约束文本一起下发
+common_rules:
+  root_forbidden: "除 root_keys 声明的键外，不得出现任何根层键；不得输出注释、重复键、占位符、Markdown 代码围栏或 YAML 外文本。"
+  quoting: "字符串一律使用单行双引号标量；不用 |、>、多行标量或字符串内换行。整数与布尔值不加引号。"
+  indent: "缩进只用 2 个空格，禁止制表符。"
+  atomic_position: "机器字段（options、combat_start、enemies、result、summary、story_patch、final_chapter）必须位于对应的玩家可见剧情字段之后。"
+  no_audit_fields: "request_id、state_version、run_seed、run_difficulty、story_state、reward_state、recent_run_summaries 是输入上下文，不得作为输出字段回显。"
+  no_tags: "本次只输出一个模板，不输出 BEGIN/END 标记，不输出思考过程或规则解释。"
+
+templates:
+  # ───────────────────────────────── 新一轮事件 ─────────────────────────────────
+  - name: "新一轮事件"
+    root_keys: ["event_details"]
+    exclusive_groups:
+      - path: "event_details.steps[]"
+        keys: ["narration", "dialogues"]
+        mode: "exactly_one"
+    fields:
+      - path: "event_details"
+        type: "object"
+        required: true
+        source: "根层唯一容器"
+      - path: "event_details.template_name"
+        type: "string"
+        required: true
+        enum: ["新一轮事件"]
+        source: "逐字使用 operation.expected_template_name"
+      - path: "event_details.event_id"
+        type: "string"
+        required: true
+        source: "从 runtime_yaml 的 event_candidates 中选定那一项的 event_id，逐字复制"
+      - path: "event_details.current_round"
+        type: "integer"
+        required: true
+        source: "逐字复制 runtime_yaml 顶层 current_round"
+      - path: "event_details.supply_value"
+        type: "integer"
+        required: true
+        range: [0, 100]
+        source: "逐字复制 runtime_yaml 顶层 supply_value，本模板只复制绝对值不自行增减"
+      - path: "event_details.corruption_value"
+        type: "integer"
+        required: true
+        range: [0, 100]
+        source: "逐字复制 runtime_yaml 顶层 corruption_value，本模板只复制绝对值不自行增减"
+      - path: "event_details.current_theme"
+        type: "string"
+        required: true
+        format: "单行双引号标量"
+        source: "依据本事件规则自行命名"
+      - path: "event_details.current_type"
+        type: "string"
+        required: true
+        enum: ["主线事件", "隐藏事件", "断点事件"]
+        source: "取事件表已有类型；不得用它承载路线标签或风险等级"
+      - path: "event_details.scene_name"
+        type: "string"
+        required: true
+        source: "本事件目标场景的精确资产名称，等于当前场景或副本连接关系允许的相邻目标"
+      - path: "event_details.steps"
+        type: "array"
+        required: true
+        length: [2, 12]
+        source: "至少 3 个 narration 与 2 个 dialogues；主线事件建议 7-12 项，断点事件建议 5-8 项"
+      - path: "event_details.steps[].narration"
+        type: "string"
+        format: "单行双引号标量"
+        source: "第二人称「你们」旁白，1-3 个完整句子；与 dialogues 互斥，同一项只能二选一"
+      - path: "event_details.steps[].dialogues"
+        type: "array"
+        source: "与 narration 互斥，同一项只能二选一"
+      - path: "event_details.steps[].dialogues[].npc"
+        type: "string"
+        source: "逐字使用 current_team.name 或本次装载资产表中的精确名称"
+      - path: "event_details.steps[].dialogues[].speech"
+        type: "string"
+        format: "单行双引号标量"
+        source: "一轮语义完整的发言，先输出 npc 再输出 speech"
+      - path: "event_details.options"
+        type: "array"
+        required: true
+        length: [2, null]
+        source: "主线与隐藏事件按事件表规定数量输出，不得增删；断点事件输出 2-4 项"
+      - path: "event_details.options[].text"
+        type: "string"
+        required: true
+        format: "单行双引号标量"
+        source: "玩家当下会想到的自然行动，含检定后缀时整体不超过 20 个中文字符"
+      - path: "event_details.options[].id"
+        type: "integer"
+        required: true
+        range: [1, null]
+        source: "同一事件内唯一；0 只留给系统结算，不得用作可选择选项 ID"
+      - path: "event_details.options[].template_name"
+        type: "string"
+        required: true
+        enum: ["检定", "结算", "战斗事件"]
+        source: "由事件表的 resolution_type 映射；决定后续走哪个模板"
+      - path: "event_details.options[].visible"
+        type: "boolean"
+        required: true
+        source: "是否满足显示条件；false 仍要输出，由程序隐藏"
+      - path: "event_details.options[].available"
+        type: "boolean"
+        required: true
+        source: "是否满足选择条件；本次至少有一项 available 为 true"
+      - path: "event_details.options[].check_type"
+        type: "string"
+        required: "conditional"
+        when: "该选项的 template_name 为 检定"
+        condition: { kind: "sibling_equals", sibling: "template_name", value: "检定" }
+        enum: ["常规检定", "隐藏检定"]
+        source: "其它 template_name 的选项禁止输出本字段"
+      - path: "event_details.options[].check_difficulty"
+        type: "integer"
+        required: "conditional"
+        when: "该选项的 template_name 为 检定"
+        condition: { kind: "sibling_equals", sibling: "template_name", value: "检定" }
+        range: [0, 20]
+        source: "其它 template_name 的选项禁止输出本字段"
+
+  # ───────────────────────────────── 战斗事件 ─────────────────────────────────
+  - name: "战斗事件"
+    root_keys: ["event_details", "combat_start", "enemies"]
+    exclusive_groups:
+      - path: "event_details.steps[]"
+        keys: ["narration", "dialogues"]
+        mode: "exactly_one"
+    fields:
+      - path: "event_details"
+        type: "object"
+        required: true
+        source: "根层容器"
+      - path: "event_details.template_name"
+        type: "string"
+        required: true
+        enum: ["战斗事件"]
+        source: "逐字使用 operation.expected_template_name"
+      - path: "event_details.current_round"
+        type: "integer"
+        required: true
+        source: "逐字复制 runtime_yaml 顶层 current_round"
+      - path: "event_details.supply_value"
+        type: "integer"
+        required: true
+        range: [0, 100]
+        source: "逐字复制 runtime_yaml 顶层 supply_value"
+      - path: "event_details.corruption_value"
+        type: "integer"
+        required: true
+        range: [0, 100]
+        source: "逐字复制 runtime_yaml 顶层 corruption_value"
+      - path: "event_details.current_theme"
+        type: "string"
+        required: true
+        format: "单行双引号标量"
+        source: "依据本次开战内容自行命名"
+      - path: "event_details.current_type"
+        type: "string"
+        required: true
+        source: "本模板固定描述战斗开场"
+      - path: "event_details.scene_name"
+        type: "string"
+        required: true
+        source: "逐字复制 pending_interaction.event_output.event_details.scene_name，本次交互期间场景不得改变"
+      - path: "event_details.steps"
+        type: "array"
+        required: true
+        length: [3, 5]
+        source: "战斗开场，3-5 项，约 160-300 字"
+      - path: "event_details.steps[].narration"
+        type: "string"
+        format: "单行双引号标量"
+        source: "第二人称「你们」旁白，1-3 个完整句子；与 dialogues 互斥"
+      - path: "event_details.steps[].dialogues"
+        type: "array"
+        source: "与 narration 互斥，同一项只能二选一"
+      - path: "event_details.steps[].dialogues[].npc"
+        type: "string"
+        source: "逐字使用 current_team.name 或本次装载资产表中的精确名称"
+      - path: "event_details.steps[].dialogues[].speech"
+        type: "string"
+        format: "单行双引号标量"
+        source: "一轮语义完整的发言，先输出 npc 再输出 speech"
+      - path: "combat_start"
+        type: "boolean"
+        required: true
+        enum: [true]
+        source: "固定为 true；本模板只配置开战，不输出胜负"
+      - path: "enemies"
+        type: "array"
+        required: true
+        length: [1, 4]
+        source: "逐个列出实际参战敌人，数量 1-4"
+      - path: "enemies[].name"
+        type: "string"
+        required: true
+        source: "必须来自副本运行包「战斗实体分类」中当前事件的合法敌人池；不得使用 current_team.name，不得增加 count 或 card_id 等字段"
+
+  # ───────────────────────────────── 检定 ─────────────────────────────────
+  - name: "检定"
+    root_keys: ["event_details"]
+    fields:
+      - path: "event_details"
+        type: "object"
+        required: true
+        source: "根层唯一容器"
+      - path: "event_details.template_name"
+        type: "string"
+        required: true
+        enum: ["检定"]
+        source: "逐字使用 operation.expected_template_name"
+      - path: "event_details.analysis"
+        type: "string"
+        required: true
+        format: "单行双引号标量"
+        source: "约 120-240 字；只写世界内叙事，不出现点数、公式、属性数值、概率、加值或系统判定"
+      - path: "event_details.result"
+        type: "string"
+        required: true
+        enum: ["大成功", "成功", "失败"]
+        source: "严格三选一；必须由本模板规定的唯一公式算出，不得自行改判"
+
+  # ───────────────────────────────── 结算 ─────────────────────────────────
+  - name: "结算"
+    root_keys: ["event_details"]
+    exclusive_groups:
+      - path: "event_details.steps[]"
+        keys: ["narration", "dialogues"]
+        mode: "exactly_one"
+    fields:
+      - path: "event_details"
+        type: "object"
+        required: true
+        source: "根层唯一容器"
+      - path: "event_details.template_name"
+        type: "string"
+        required: true
+        enum: ["结算"]
+        source: "逐字使用 operation.expected_template_name"
+      - path: "event_details.event_id"
+        type: "string"
+        required: true
+        source: "逐字复制 pending_interaction.event_id"
+      - path: "event_details.current_round"
+        type: "integer"
+        required: true
+        source: "逐字复制 runtime_yaml 顶层 current_round"
+      - path: "event_details.supply_value"
+        type: "integer"
+        required: true
+        range: [0, 100]
+        source: "逐字复制 runtime_yaml 顶层 supply_value；本事件的增减写入 summary，不改这里"
+      - path: "event_details.corruption_value"
+        type: "integer"
+        required: true
+        range: [0, 100]
+        source: "逐字复制 runtime_yaml 顶层 corruption_value；本事件的增减写入 summary，不改这里"
+      - path: "event_details.current_theme"
+        type: "string"
+        required: true
+        format: "单行双引号标量"
+        source: "依据本次结算内容自行命名"
+      - path: "event_details.current_type"
+        type: "string"
+        required: true
+        source: "描述本次结算类型"
+      - path: "event_details.scene_name"
+        type: "string"
+        required: true
+        source: "逐字复制 pending_interaction.event_output.event_details.scene_name，本次交互期间场景不得改变"
+      - path: "event_details.steps"
+        type: "array"
+        required: true
+        length: [3, 6]
+        source: "结算叙事，3-6 项，约 180-360 字"
+      - path: "event_details.steps[].narration"
+        type: "string"
+        format: "单行双引号标量"
+        source: "第二人称「你们」旁白；与 dialogues 互斥"
+      - path: "event_details.steps[].dialogues"
+        type: "array"
+        source: "与 narration 互斥，同一项只能二选一"
+      - path: "event_details.steps[].dialogues[].npc"
+        type: "string"
+        source: "逐字使用 current_team.name 或本次装载资产表中的精确名称"
+      - path: "event_details.steps[].dialogues[].speech"
+        type: "string"
+        format: "单行双引号标量"
+        source: "一轮语义完整的发言，先输出 npc 再输出 speech"
+      - path: "event_details.summary"
+        type: "array"
+        required: true
+        length: [1, null]
+        source: "首项为一句自然语言总结，其后为机器明细；没有变化时首项内容写「无物品或数值变化」"
+      - path: "event_details.summary[].summary"
+        type: "string"
+        required: "conditional"
+        when: "该条目是 summary 的第一项"
+        condition: { kind: "index_equals", value: 0 }
+        format: "单行双引号标量"
+        source: "概括自然结果；禁止出现内部触发 ID 或后台状态措辞"
+      - path: "event_details.summary[].type"
+        type: "string"
+        required: "conditional"
+        when: "该条目是 summary 的第一项之后的明细项"
+        condition: { kind: "index_not", value: 0 }
+        enum: ["item", "player_attr"]
+        source: "只允许这两类；card、relic、fate、member_attr 与具体材料 ID 始终禁止"
+      - path: "event_details.summary[].id"
+        type: "integer"
+        required: "conditional"
+        when: "该明细项的 type 为 item"
+        condition: { kind: "sibling_equals", sibling: "type", value: "item" }
+        range: [900000, 900099]
+        source: "只允许 900000 号段局内道具；900050、900060、900061 是程序即时奖励触发信号，程序拦截后不进入背包"
+      - path: "event_details.summary[].count"
+        type: "integer"
+        required: "conditional"
+        when: "该明细项的 type 为 item"
+        condition: { kind: "sibling_equals", sibling: "type", value: "item" }
+        source: "本次变化量；消耗写负数"
+      - path: "event_details.summary[].corruption"
+        type: "integer"
+        required: false
+        when: "该明细项的 type 为 player_attr 且本次确有变化"
+        condition: { kind: "sibling_equals", sibling: "type", value: "player_attr" }
+        source: "本次 delta，不是绝对值；本次没有变化就整项省略，不输出 0"
+      - path: "event_details.summary[].supply"
+        type: "integer"
+        required: false
+        when: "该明细项的 type 为 player_attr 且本次确有变化"
+        condition: { kind: "sibling_equals", sibling: "type", value: "player_attr" }
+        source: "本次 delta，不是绝对值；本次没有变化就整项省略，不输出 0"
+      - path: "event_details.summary[].gold"
+        type: "integer"
+        required: false
+        when: "该明细项的 type 为 player_attr，且 gold_policy.enabled 为 true 且事件授权 gold"
+        condition:
+          kind: "all"
+          all:
+            - { kind: "sibling_equals", sibling: "type", value: "player_attr" }
+            - { kind: "context_flag", flag: "gold_policy_enabled" }
+        source: "本次 delta，不是绝对值；本次没有变化就整项省略，不输出 0"
+      - path: "event_details.summary[].diamond"
+        type: "integer"
+        required: false
+        when: "该明细项的 type 为 player_attr，且 diamond_policy.enabled 为 true 且事件授权 diamond"
+        condition:
+          kind: "all"
+          all:
+            - { kind: "sibling_equals", sibling: "type", value: "player_attr" }
+            - { kind: "context_flag", flag: "diamond_policy_enabled" }
+        source: "本次 delta，不是绝对值；本次没有变化就整项省略，不输出 0"
+      - path: "event_details.story_patch"
+        type: "object"
+        required: true
+        source: "只记录剧情状态增量，不重复 summary 中的资源变化"
+      - path: "event_details.story_patch.completed_event_id"
+        type: "string"
+        required: true
+        source: "等于 event_details.event_id"
+      - path: "event_details.story_patch.selected_option_id"
+        type: "integer"
+        required: true
+        range: [0, null]
+        source: "玩家实际选择的选项 ID；无玩家选项的系统结算填 0"
+      - path: "event_details.story_patch.outcome"
+        type: "string"
+        required: true
+        enum: ["great_success", "success", "failure", "victory", "defeat", "retreat", "resolved"]
+        source: "必须与程序回传的检定或战斗结果严格一致"
+      - path: "event_details.story_patch.run_archetype"
+        type: "string"
+        required: true
+        source: "逐字复制 runtime_yaml 的 story_state.run_archetype，是绝对值不是增量"
+      - path: "event_details.story_patch.run_modifier_ids"
+        type: "array"
+        required: true
+        length: [2, 2]
+        source: "逐字复制 runtime_yaml 的 story_state.run_modifier_ids，是绝对值不是增量"
+      - path: "event_details.story_patch.add_flags"
+        type: "array"
+        required: true
+        source: "只使用事件表或随机骨架定义的稳定大写标识；没有新增时输出空数组"
+      - path: "event_details.story_patch.remove_flags"
+        type: "array"
+        required: true
+        source: "同一 flag 不得同时出现在 add_flags 与 remove_flags；没有移除时输出空数组"
+      - path: "event_details.story_patch.route_delta"
+        type: "object"
+        required: true
+        source: "仅输出本次结算变化，程序累加后在下一轮 story_state.route_scores 中返回"
+      - path: "event_details.story_patch.route_delta.combat"
+        type: "integer"
+        required: true
+        source: "本次 route_delta 中的 combat 分变化，无变化填 0"
+      - path: "event_details.story_patch.route_delta.scheme"
+        type: "integer"
+        required: true
+        source: "本次 route_delta 中的 scheme 分变化，无变化填 0"
+      - path: "event_details.story_patch.route_delta.cleanse"
+        type: "integer"
+        required: true
+        source: "本次 route_delta 中的 cleanse 分变化，无变化填 0"
+      - path: "event_details.story_patch.npc_state_updates"
+        type: "array"
+        required: true
+        source: "只写真实发生的关系改变；同一 NPC 每次结算最多出现一次"
+      - path: "event_details.story_patch.npc_state_updates[].npc"
+        type: "string"
+        required: true
+        source: "本次装载资产表中的 NPC 精确名称"
+      - path: "event_details.story_patch.npc_state_updates[].state"
+        type: "string"
+        required: true
+        enum: ["met", "trusted", "cooperative", "neutral", "wary", "hostile", "departed", "dead"]
+        source: "表示结算后的绝对状态"
+      - path: "event_details.story_patch.memory_notes"
+        type: "array"
+        required: true
+        length: [0, 3]
+        source: "每条概括一个后续可能回收的因果事实，不复述完整旁白"
+      - path: "event_details.story_patch.unresolved_hooks_added"
+        type: "array"
+        required: true
+        length: [0, 1]
+        source: "记录尚未回答的问题；story_state 已有 3 条未解决悬念时必须为空"
+      - path: "event_details.story_patch.unresolved_hooks_resolved"
+        type: "array"
+        required: true
+        source: "只列 story_state 中真实存在且本次真正解决的悬念原文"
+      - path: "event_details.final_chapter"
+        type: "boolean"
+        required: true
+        source: "仅为终局提案，程序按硬阈值与副本终局白名单最终确认；普通 defeat 不自动结束整局"
+
+  # ───────────────────────────────── 终章 ─────────────────────────────────
+  - name: "终章"
+    root_keys: ["event_details"]
+    fields:
+      - path: "event_details"
+        type: "object"
+        required: true
+        source: "根层唯一容器"
+      - path: "event_details.template_name"
+        type: "string"
+        required: true
+        enum: ["终章"]
+        source: "逐字使用 operation.expected_template_name"
+      - path: "event_details.content"
+        type: "string"
+        required: true
+        format: "单行双引号标量"
+        source: "不少于 800 字；只回收本局真实发生的选择、所得与代价，不得把未触发事件或候选奖励写成已经获得"

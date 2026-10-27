@@ -411,6 +411,129 @@ describe("server routes", () => {
   });
 });
 
+describe("event_context 资产清单审计(越界不再中断请求)", () => {
+  const roundThreeContext = (overrides = {}) => ({
+    event_package_version: "2026.09.04.1",
+    template_contract_version: "five-template-v3",
+    candidate_event_ids: ["H01", "R_P1_FLOODED_CHAPEL", "R_P1_TRAPPED_SCOUT", "R_P1_SLIME_TRAIL", "R_P1_BROKEN_BRIDGE"],
+    associated_roles: [{ id: "200000145", name: "史莱姆王" }],
+    associated_scenes: [{ id: "scene_village", name: "艾德村庄" }],
+    ...overrides
+  });
+
+  const roundThreeRequest = (eventContext, overrides = {}) => validRequest({
+    operation: { type: "next_round", request_id: "req-round-three", expected_template_name: "新一轮事件" },
+    current_round: 3,
+    story_state: {
+      ...validRequest().story_state,
+      completed_events: ["M01", "R_P1_TAINTED_GRANARY"],
+      npc_states: [{ npc: "村长艾德", state: "neutral" }]
+    },
+    event_context: eventContext,
+    ...overrides
+  });
+
+  it("NPC 超出候选事件 asset_scope 时不再拒绝请求,只产出审计结论", () => {
+    const request = roundThreeRequest(roundThreeContext({
+      associated_roles: [
+        { id: "200000145", name: "史莱姆王" },
+        { id: "200000129", name: "村长艾德" }
+      ]
+    }));
+    const normalized = validateRequest(request);
+    const finding = normalized.assetFindings.find(item => item.code === "EVENT_CONTEXT_NPC_OUT_OF_SCOPE");
+    assert.ok(finding, "应产出越界审计结论");
+    assert.equal(finding.field, "associated_roles");
+    assert.deepEqual(finding.entries.map(entry => entry.name), ["村长艾德"]);
+    assert.deepEqual(finding.story_npc_entries.map(entry => entry.name), ["村长艾德"]);
+    assert.equal(finding.impact, "none");
+  });
+
+  it("结构化 ID 在范围内时,名称漂移只告警不拒绝", () => {
+    const request = roundThreeRequest(roundThreeContext({
+      associated_roles: [{ id: "200000130", name: "村长艾德" }]
+    }));
+    const normalized = validateRequest(request);
+    assert.equal(normalized.assetFindings.some(item => item.code === "EVENT_CONTEXT_NPC_OUT_OF_SCOPE"), false);
+    const drift = normalized.assetFindings.find(item => item.code === "EVENT_CONTEXT_NPC_NAME_DRIFT");
+    assert.ok(drift, "应产出名称漂移审计结论");
+    assert.deepEqual(drift.entries.map(entry => entry.id), ["200000130"]);
+  });
+
+  it("客户端完全没送资产清单时不再 400", () => {
+    const request = roundThreeRequest({
+      event_package_version: "2026.09.04.1",
+      template_contract_version: "five-template-v3",
+      candidate_event_ids: ["H01"]
+    });
+    const normalized = validateRequest(request);
+    assert.ok(normalized.assetFindings.some(item => item.code === "EVENT_CONTEXT_NPC_MISSING"));
+    assert.ok(normalized.assetFindings.some(item => item.code === "EVENT_CONTEXT_SCENE_MISSING"));
+  });
+
+  it("资产清单类型非法(不是 array)仍然 400,并带 details", () => {
+    const request = roundThreeRequest(roundThreeContext({ associated_roles: "史莱姆王" }));
+    assert.throws(
+      () => validateRequest(request),
+      error => error.code === "EVENT_CONTEXT_ASSET_SHAPE" && error.details.field === "associated_roles"
+    );
+  });
+
+  it("场景越界只告警;当前场景始终合法", () => {
+    const outOfScope = validateRequest(roundThreeRequest(roundThreeContext({
+      associated_scenes: [{ id: "scene_tavern", name: "酒馆" }]
+    })));
+    const sceneFinding = outOfScope.assetFindings.find(item => item.code === "EVENT_CONTEXT_SCENE_OUT_OF_SCOPE");
+    assert.ok(sceneFinding, "应产出场景越界审计结论");
+    assert.deepEqual(sceneFinding.entries.map(entry => entry.id), ["scene_tavern"]);
+
+    const currentScene = validateRequest(roundThreeRequest({
+      event_package_version: "2026.09.04.1",
+      template_contract_version: "five-template-v3",
+      candidate_event_ids: ["H01"],
+      associated_scenes: [{ id: "scene_village", name: "艾德村庄" }]
+    }));
+    assert.equal(currentScene.assetFindings.some(item => item.code === "EVENT_CONTEXT_SCENE_OUT_OF_SCOPE"), false);
+  });
+
+  it("候选事件不在本轮调度范围时仍然 400,并带 details", () => {
+    const request = validRequest({
+      operation: { type: "next_round", request_id: "req-round-unscheduled", expected_template_name: "新一轮事件" },
+      current_round: 3,
+      event_context: {
+        event_package_version: "2026.09.04.1",
+        template_contract_version: "five-template-v3",
+        candidate_event_ids: ["M02"],
+        associated_roles: [],
+        associated_scenes: []
+      }
+    });
+    assert.throws(
+      () => validateRequest(request),
+      error => error.code === "EVENT_CONTEXT_CANDIDATES" && Array.isArray(error.details.unscheduled_event_ids)
+    );
+  });
+
+  it("端到端:NPC 越界的请求仍然返回 200", async () => {
+    const { server, base } = await startTestServer();
+    try {
+      const response = await fetch(`${base}/api/chat`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(roundThreeRequest(roundThreeContext({
+          associated_roles: [
+            { id: "200000145", name: "史莱姆王" },
+            { id: "200000129", name: "村长艾德" }
+          ]
+        }), { operation: { type: "next_round", request_id: "req-round-three-http", expected_template_name: "新一轮事件" } }))
+      });
+      const text = await readResponse(response);
+      assert.equal(response.status, 200);
+      assert.match(text, /data: \[DONE\]/);
+    } finally { await close(server); }
+  });
+});
+
 describe("current_team validation and prompt injection", () => {
   it("顶层 current_team 出现在 user prompt 中(队员名/职业/属性都被注入)", () => {
     const team = validTeamPayload([

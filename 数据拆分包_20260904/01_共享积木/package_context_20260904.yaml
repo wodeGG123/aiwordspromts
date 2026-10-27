@@ -1,7 +1,7 @@
 package_context:
   engine:
     id: "adventure.engine.ai-led-five-template"
-    version: "2026.09.04.1"
+    version: "2026.09.04.2"
   world:
     id: "world.western-fantasy.rules"
     version: "2026.09.04.1"

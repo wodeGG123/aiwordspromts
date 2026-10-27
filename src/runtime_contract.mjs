@@ -281,7 +281,127 @@ function mergeCurrentTeamIntoRuntimeYaml(runtimeYaml, teamYaml) {
   return stripped.length > 0 ? `${stripped}\n\n${teamYaml}\n` : `${teamYaml}\n`;
 }
 
-function validateEventContext(request, operationType, expectedTemplateName, currentRound, currentSceneId, pendingInteraction) {
+/**
+ * 审计客户端送来的资产清单（npc_names / associated_roles / scene_ids / associated_scenes）。
+ *
+ * 这份清单是冗余字段：服务端会用 candidate_event_ids 重新推导权威资产范围
+ * （collectGenerationAssets），客户端清单从不进入提示词。因此这里只做一致性审计，
+ * 越界不再返回 400，只产出 findings 供上层记录日志。
+ *
+ * 判定以结构化 ID 为准、名称为辅：协议要求程序按 role_id / scene_id 取资产，
+ * 客户端名称快照可能因数据包版本漂移而不一致，这种情况不应中断请求。
+ */
+function inspectClientAssetScope(context, candidateIds, currentSceneId, storyState) {
+  const allowedRoleIds = new Set();
+  const allowedRoleNames = new Set();
+  const allowedSceneIds = new Set();
+  const allowedSceneNames = new Set();
+  for (const id of candidateIds) {
+    const links = eventAssetIndex[id];
+    if (!links) continue;
+    links.role_ids.forEach(roleId => allowedRoleIds.add(roleId));
+    links.role_names.forEach(name => allowedRoleNames.add(name));
+    links.scene_ids.forEach(sceneId => allowedSceneIds.add(sceneId));
+    links.scene_names.forEach(name => allowedSceneNames.add(name));
+  }
+
+  const storyNpcNames = new Set(
+    (Array.isArray(storyState?.npc_states) ? storyState.npc_states : [])
+      .map(entry => entry?.npc)
+      .filter(name => isString(name) && name.length > 0)
+  );
+
+  const findings = [];
+
+  function auditAssetList({ fields, code, label, readEntry, allowedIds, allowedNames, extraAllowedIds = [] }) {
+    const present = fields.filter(field => context[field] !== undefined && context[field] !== null);
+    if (present.length === 0) {
+      findings.push({
+        code: `${code}_MISSING`,
+        message: `客户端未提供${label}资产清单,服务端已按候选事件asset_scope自行推导`,
+        impact: "none"
+      });
+      return;
+    }
+    if (present.length > 1) {
+      findings.push({
+        code: "EVENT_CONTEXT_ASSET_DUPLICATE_SOURCE",
+        message: `客户端同时提供了${present.join("/")}两种${label}清单,服务端会全部审计`,
+        fields: present,
+        impact: "none"
+      });
+    }
+    for (const field of present) {
+      const value = context[field];
+      invariant(
+        Array.isArray(value),
+        "EVENT_CONTEXT_ASSET_SHAPE",
+        `event_context.${field}必须是array`,
+        { field, received: Array.isArray(value) ? "array" : typeof value }
+      );
+      const entries = value.map(item => readEntry(item));
+      const outOfScope = [];
+      const nameDrift = [];
+      for (const entry of entries) {
+        const inScopeById = entry.id !== undefined && (allowedIds.has(entry.id) || extraAllowedIds.includes(entry.id));
+        const inScopeByName = isString(entry.name) && allowedNames.has(entry.name);
+        if (!inScopeById && !inScopeByName) {
+          outOfScope.push(entry);
+          continue;
+        }
+        if (inScopeById && isString(entry.name) && entry.name.length > 0 && !allowedNames.has(entry.name)) {
+          nameDrift.push(entry);
+        }
+      }
+      if (outOfScope.length > 0) {
+        findings.push({
+          code: `${code}_OUT_OF_SCOPE`,
+          message: `客户端${label}超出候选事件asset_scope,已忽略;服务端按候选事件asset_scope自行推导权威范围`,
+          field,
+          entries: outOfScope,
+          story_npc_entries: outOfScope.filter(entry => isString(entry.name) && storyNpcNames.has(entry.name)),
+          impact: "none"
+        });
+      }
+      if (nameDrift.length > 0) {
+        findings.push({
+          code: `${code}_NAME_DRIFT`,
+          message: `客户端${label}名称与服务端资产表不一致,已按结构化ID判定为合法`,
+          field,
+          entries: nameDrift,
+          impact: "none"
+        });
+      }
+    }
+  }
+
+  auditAssetList({
+    fields: ["npc_names", "associated_roles"],
+    code: "EVENT_CONTEXT_NPC",
+    label: "NPC",
+    readEntry: item => (isObject(item)
+      ? { id: item.id === undefined || item.id === null ? undefined : String(item.id), name: item.name }
+      : { id: undefined, name: isString(item) ? item : undefined }),
+    allowedIds: allowedRoleIds,
+    allowedNames: allowedRoleNames
+  });
+
+  auditAssetList({
+    fields: ["scene_ids", "associated_scenes"],
+    code: "EVENT_CONTEXT_SCENE",
+    label: "场景",
+    readEntry: item => (isObject(item)
+      ? { id: item.id === undefined || item.id === null ? undefined : String(item.id), name: item.name }
+      : { id: isString(item) ? item : undefined, name: undefined }),
+    allowedIds: allowedSceneIds,
+    allowedNames: allowedSceneNames,
+    extraAllowedIds: currentSceneId ? [currentSceneId] : []
+  });
+
+  return findings;
+}
+
+function validateEventContext(request, operationType, expectedTemplateName, currentRound, currentSceneId, pendingInteraction, storyState) {
   const context = request.event_context;
   invariant(isObject(context), "EVENT_CONTEXT_REQUIRED", "event_context必须是object");
   const eventPackageVersion = context.event_package_version;
@@ -311,9 +431,24 @@ function validateEventContext(request, operationType, expectedTemplateName, curr
   const scheduled = new Set(Object.entries(eventScheduleIndex)
     .filter(([, rule]) => currentRound >= rule.round_min && currentRound <= rule.round_max && (!rule.fixed || currentRound === rule.round_min))
     .map(([id]) => id));
-  invariant(candidateIds.every(id => eventDefinitions[id] && scheduled.has(id)), "EVENT_CONTEXT_CANDIDATES", "候选事件不属于当前轮调度范围");
+  invariant(
+    candidateIds.every(id => eventDefinitions[id] && scheduled.has(id)),
+    "EVENT_CONTEXT_CANDIDATES",
+    "候选事件不属于当前轮调度范围",
+    {
+      candidate_event_ids: candidateIds,
+      current_round: currentRound,
+      unknown_event_ids: candidateIds.filter(id => !eventDefinitions[id]),
+      unscheduled_event_ids: candidateIds.filter(id => eventDefinitions[id] && !scheduled.has(id))
+    }
+  );
   if (eventId !== undefined) {
-    invariant(candidateIds.includes(eventId), "EVENT_CONTEXT_CANDIDATES", "选定事件不在候选集合中");
+    invariant(
+      candidateIds.includes(eventId),
+      "EVENT_CONTEXT_CANDIDATES",
+      "选定事件不在候选集合中",
+      { event_id: eventId, candidate_event_ids: candidateIds }
+    );
   }
   if (isGenerationOperation) {
     invariant(context.forced_event_id === undefined || context.forced_event_id === eventId, "EVENT_CONTEXT_SELECTION", "forced_event_id必须与选定事件一致");
@@ -321,13 +456,11 @@ function validateEventContext(request, operationType, expectedTemplateName, curr
     invariant(pendingInteraction?.event_id === eventId, "EVENT_CONTEXT_PENDING", "活动事件必须与pending事件一致");
   }
 
-  const allowedRoleNames = new Set(candidateIds.flatMap(id => eventAssetIndex[id].role_names));
-  const allowedSceneIds = new Set(candidateIds.flatMap(id => eventAssetIndex[id].scene_ids));
-  const npcNames = context.npc_names ?? (Array.isArray(context.associated_roles) ? context.associated_roles.map(item => item?.name) : undefined);
-  const sceneIds = context.scene_ids ?? (Array.isArray(context.associated_scenes) ? context.associated_scenes.map(item => item?.id) : undefined);
-  invariant(Array.isArray(npcNames) && npcNames.every(name => allowedRoleNames.has(name)), "EVENT_CONTEXT_NPC", "NPC不属于候选事件资产范围");
-  invariant(Array.isArray(sceneIds) && sceneIds.every(id => allowedSceneIds.has(id) || id === currentSceneId), "EVENT_CONTEXT_SCENE", "场景不属于候选事件资产范围");
-  return eventId === undefined ? { ...context } : { ...context, event_id: eventId };
+  const findings = inspectClientAssetScope(context, candidateIds, currentSceneId, storyState);
+  return {
+    eventContext: eventId === undefined ? { ...context } : { ...context, event_id: eventId },
+    findings
+  };
 }
 
 function normalizeTextScalar(value) {
@@ -494,7 +627,15 @@ export function validateRequest(request) {
     invariant(pendingInteraction.scene_id === currentSceneId, "PENDING_SCENE_MISMATCH", "pending_interaction.scene_id必须与current_scene_id一致");
   }
 
-  const eventContext = validateEventContext(request, operationType, expectedTemplateName, currentRound, currentSceneId, pendingInteraction);
+  const { eventContext, findings } = validateEventContext(
+    request,
+    operationType,
+    expectedTemplateName,
+    currentRound,
+    currentSceneId,
+    pendingInteraction,
+    storyState
+  );
 
   if (TEMPLATE_REQUIRES_PENDING.has(expectedTemplateName)) {
     invariant(pendingInteraction !== null, "PENDING_REQUIRED", `${expectedTemplateName}必须提供pending_interaction`);
@@ -523,6 +664,7 @@ export function validateRequest(request) {
     pendingInteraction,
     candidates,
     eventContext,
+    assetFindings: findings,
     currentTeam,
     currentTeamSource
   };
@@ -579,6 +721,7 @@ export function preparePromptFromRequest(request, options = {}) {
     expectedTemplateName: normalized.expectedTemplateName,
     runtimeYaml,
     currentTeam: normalized.currentTeam,
-    currentTeamSource: normalized.currentTeamSource
+    currentTeamSource: normalized.currentTeamSource,
+    assetFindings: normalized.assetFindings
   };
 }

@@ -99,9 +99,56 @@ AI 请求：
 3. 依据 `asset_scope.roles.core/possible` 关联 NPC、敌人；依据 `asset_scope.scenes.core/possible` 关联场景。
 4. 保持候选顺序和正整数 weight；不重复，不把白名单外的资产发给服务端。
 5. 为 `start`/`next_round` 写入 `candidate_event_ids` 和必要的 `forced_event_id`；forced ID 必须位于候选中。
-6. 保存 `event_context` 的事件包版本、模板契约版本、事件 ID、候选 ID、NPC 名称、场景 ID/名称。
+6. 保存 `event_context` 的事件包版本、模板契约版本、事件 ID、候选 ID 和资产清单；资产清单必须按下节规则每轮重算。
 
 不要把 `rules_text` 当作运行时事件数据库，也不要让模型返回的名称替换结构化 ID。展示层可通过 ID 查本地资产名称，提交层以 ID 和快照为准。
+
+### 资产清单的强制约定（`associated_roles` / `associated_scenes`）
+
+服务端是资产范围的唯一权威：它会用 `candidate_event_ids` 重新推导本轮权威范围（`collectGenerationAssets`），客户端送来的资产清单只是冗余快照，服务端会做一致性审计但不再因越界拒绝请求。因此客户端必须自己保证清单正确，否则会出现「AI 看不见某个角色」或「审计日志持续报警」。
+
+规则（每条请求都必须重新计算，不得跨轮沿用）：
+
+1. `associated_roles` = 本次 `candidate_event_ids` 中每个事件 `asset_scope.roles.core ∪ asset_scope.roles.possible` 的**并集**，每项写 `{ id, name }`，`id` 用 `role_id`，`name` 用资产表里的名称。
+2. `associated_scenes` = 本次 `candidate_event_ids` 中每个事件 `asset_scope.scenes.core ∪ asset_scope.scenes.possible` 的**并集**，每项写 `{ id, name }`，`id` 用 `scene_id`。
+3. **只放候选事件自己的资产**。不得放入：`story_state.npc_states` 里已登场但本轮不属于任何候选事件的 NPC、已完成事件（例如 `M01`、`R_P1_TAINTED_GRANARY`）独有的 NPC、当前队伍成员 `current_team`、以及任何白名单外资产。
+   - 典型故障：第 2 轮结算完 `R_P1_TAINTED_GRANARY` 后它不再进入第 3 轮候选集合，只有 `M01` / `R_P1_TAINTED_GRANARY` 才拥有「村长艾德」「老板娘玛莎」；若沿用上一轮清单，第 3 轮会送出越界 NPC。
+4. `npc_names` / `scene_ids` 与 `associated_roles` / `associated_scenes` 是两套等价的旧/新写法，**只能二选一**。同时发送时服务端优先读 `npc_names` / `scene_ids`，`associated_roles` / `associated_scenes` 会被忽略。新代码统一使用 `associated_roles` / `associated_scenes`。
+5. 资产清单缺失不会中断请求，但会触发服务端审计告警；发送正确清单是客户端责任。
+
+参考实现（`AdventureRequestFactory` 内，每次请求现算）：
+
+```dart
+/// 从本次候选集合推导传输层资产清单。
+/// 关键：只取 candidate_event_ids 自身的 asset_scope，且每轮重算，绝不沿用上一轮。
+Map<String, dynamic> buildEventContext({
+  required List<String> candidateEventIds,
+  required String eventPackageVersion,
+  required String templateContractVersion,
+  String? forcedEventId,
+}) {
+  final roles = <String, String>{};   // role_id -> name
+  final scenes = <String, String>{};  // scene_id -> name
+  for (final eventId in candidateEventIds) {
+    final scope = eventCatalog.assetScopeOf(eventId);
+    for (final role in [...scope.roles.core, ...scope.roles.possible]) {
+      roles[role.roleId] = role.name;   // 同一 role_id 只保留一份
+    }
+    for (final scene in [...scope.scenes.core, ...scope.scenes.possible]) {
+      scenes[scene.sceneId] = scene.name;
+    }
+  }
+  // 注意：这里不要合并 story_state.npc_states、已完成事件的角色或 current_team。
+  return {
+    'event_package_version': eventPackageVersion,
+    'template_contract_version': templateContractVersion,
+    'candidate_event_ids': candidateEventIds,
+    if (forcedEventId != null) 'forced_event_id': forcedEventId,
+    'associated_roles': roles.entries.map((e) => {'id': e.key, 'name': e.value}).toList(),
+    'associated_scenes': scenes.entries.map((e) => {'id': e.key, 'name': e.value}).toList(),
+  };
+}
+```
 
 ### 场景字段的强制约定
 

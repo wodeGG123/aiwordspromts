@@ -24,6 +24,27 @@ function hashRequest(value) {
   return JSON.stringify(value);
 }
 
+// 校验失败时把 event_context 摘要落日志（不记录 runtime_yaml，避免日志被撑爆）
+function summarizeEventContext(eventContext) {
+  if (!eventContext || typeof eventContext !== "object") return null;
+  const summarizeEntries = value => {
+    if (!Array.isArray(value)) return undefined;
+    return value.map(item => {
+      if (item === null || typeof item !== "object") return { value: item };
+      return { id: item.id, name: item.name };
+    });
+  };
+  return {
+    candidate_event_ids: eventContext.candidate_event_ids,
+    event_id: eventContext.event_id,
+    forced_event_id: eventContext.forced_event_id,
+    npc_names: eventContext.npc_names,
+    associated_roles: summarizeEntries(eventContext.associated_roles),
+    scene_ids: eventContext.scene_ids,
+    associated_scenes: summarizeEntries(eventContext.associated_scenes)
+  };
+}
+
 export function createApp({ config, modelClient } = {}) {
   const client = modelClient || new OpenAI({ apiKey: config.aiApiKey, baseURL: config.aiBaseUrl });
   const modelService = createModelService({
@@ -99,10 +120,29 @@ export function createApp({ config, modelClient } = {}) {
         });
       } catch (error) {
         const status = error.code === "RUNTIME_TOO_LARGE" ? 413 : error instanceof RuntimeContractError ? 400 : 500;
+        console.warn(JSON.stringify({
+          component: "adventure-chat",
+          event: "request_rejected",
+          request_id: requestId,
+          operation: input?.operation?.type,
+          code: error.code || "PROMPT_ASSEMBLY_FAILED",
+          message: error.message,
+          details: error.details,
+          event_context: summarizeEventContext(input?.event_context)
+        }));
         sendError(res, status, error.code || "PROMPT_ASSEMBLY_FAILED", error.message, config, origin, error.details, requestId);
         return;
       }
       promptAssemblyMs = Date.now() - promptAssemblyStartedAt;
+      if (Array.isArray(prepared.assetFindings) && prepared.assetFindings.length > 0) {
+        console.warn(JSON.stringify({
+          component: "adventure-chat",
+          event: "asset_scope_advisory",
+          request_id: prepared.requestId,
+          operation: prepared.operationType,
+          findings: prepared.assetFindings
+        }));
+      }
       const systemPromptChars = prepared.messages.find(message => message.role === "system")?.content.length ?? 0;
       const userPromptChars = prepared.messages.find(message => message.role === "user")?.content.length ?? 0;
       const runtimeYamlChars = typeof prepared.runtimeYaml === "string" ? prepared.runtimeYaml.length : 0;

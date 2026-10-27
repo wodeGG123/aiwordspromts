@@ -7,7 +7,9 @@
   "scripts": {
     "start": "node src/index.js",
     "dev": "node --watch src/index.js",
-    "test": "node --test src/**/*.test.mjs"
+    "test": "node --test \"src/**/*.test.mjs\"",
+    "verify:bundle": "node 数据拆分包_20260904/04_验证工具/验证完整模拟_20260904.mjs",
+    "regen:bundle": "node 数据拆分包_20260904/04_验证工具/重新生成预切片与模拟_20260904.mjs"
   },
   "keywords": [
     "ai",
@@ -19,6 +21,7 @@
   "license": "MIT",
   "dependencies": {
     "dotenv": "^17.4.1",
-    "openai": "^6.34.0"
+    "openai": "^6.34.0",
+    "yaml": "^2.9.1"
   }
 }

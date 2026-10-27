@@ -107,7 +107,7 @@
 - `story_state.current_scene_id` 与顶层场景一致；route scores 的 `combat`、`scheme`、`cleanse` 为整数；`run_modifier_ids` 恰为两项。
 - 活动事件必须存在于结构化事件定义中。
 - `event_context.event_package_version`、副本包版本和模板契约版本必须匹配当前发布包。
-- `npc_names`、`scene_ids`、候选事件和 forced event 必须属于结构化资产白名单。
+- 候选事件和 forced event 必须属于结构化资产白名单与当前轮调度范围；客户端送来的 `npc_names`/`associated_roles`/`scene_ids`/`associated_scenes` 只是冗余快照，服务端按 `candidate_event_ids` 自行推导权威范围，对越界只做一致性审计并记录日志，不再因此拒绝请求。资产清单类型非法（不是 array）仍按请求错误拒绝。
 - `start`/`next_round` 的候选事件必须属于当前轮调度范围；非新轮操作的事件必须与 pending 事件一致。
 - `settle_check` 和 `battle_result` 必须有 pending interaction；pending 的 event ID 和 scene ID 必须与请求及活动事件一致。
 - 正式客户端不能指定 `model`、system prompt、AI Key 或提示词资产路径。
