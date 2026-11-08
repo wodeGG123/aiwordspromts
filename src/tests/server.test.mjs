@@ -176,12 +176,12 @@ describe("server routes", () => {
       const health = await fetch(`${base}/health`);
       const capabilities = await fetch(`${base}/api/capabilities`);
       assert.equal(health.status, 200);
-      assert.equal((await health.json()).contracts.runtime, "adventure-runtime-v4");
+      assert.equal((await health.json()).contracts.runtime, "adventure-runtime-v5");
       assert.equal(capabilities.status, 200);
       const capabilityBody = await capabilities.json();
       assert.deepEqual(capabilityBody.templates, ["新一轮事件", "战斗事件", "检定", "结算", "终章"]);
       assert.equal(capabilityBody.server_stream_mode, "incremental_passthrough");
-      assert.equal(capabilityBody.server_validates_output, false);
+      assert.equal(capabilityBody.server_validates_output, true);
     } finally { await close(server); }
   });
 

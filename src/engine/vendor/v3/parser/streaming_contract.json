@@ -1,0 +1,53 @@
+{
+  "version": "yaml-visible-fields-v3",
+  "transport": "frontend_direct_raw_yaml_stream",
+  "framing": "fixed_template_quoted_scalar_v1",
+  "provider_chunk_modes": [
+    "delta_text",
+    "cumulative_text"
+  ],
+  "required_emit_mode": "complete_visible_field",
+  "optional_emit_mode": "sentence_inside_open_scalar",
+  "visible_scalar_dialect": "json_compatible_yaml_double_quoted_v1",
+  "failure_mode": "disable_provisional_continue_raw_accumulation",
+  "provisional_until_full_validation": true,
+  "visible_field_paths": [
+    "event_details.current_theme",
+    "event_details.steps[].narration",
+    "event_details.steps[].dialogues[].npc",
+    "event_details.steps[].dialogues[].speech",
+    "event_details.analysis",
+    "event_details.content"
+  ],
+  "atomic_field_paths": [
+    "event_details.options",
+    "event_details.result",
+    "combat_start",
+    "enemies",
+    "event_details.summary",
+    "event_details.story_patch",
+    "event_details.final_chapter"
+  ],
+  "header_gate_paths_by_template": {
+    "新一轮事件": [
+      "event_details.template_name",
+      "event_details.event_id",
+      "event_details.scene_name"
+    ],
+    "战斗事件": [
+      "event_details.template_name",
+      "event_details.scene_name"
+    ],
+    "检定": [
+      "event_details.template_name"
+    ],
+    "结算": [
+      "event_details.template_name",
+      "event_details.event_id",
+      "event_details.scene_name"
+    ],
+    "终章": [
+      "event_details.template_name"
+    ]
+  }
+}

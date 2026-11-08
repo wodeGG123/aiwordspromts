@@ -1,4 +1,5 @@
 import { CONTRACTS, TEMPLATES } from "./constants.mjs";
+import { chapterSummaries, catalogStats, BATTLE_RESULTS, PERMANENT_REWARD_SIGNALS, PLAY_MODES } from "../engine/v3_catalog.mjs";
 
 export function corsHeaders(config, requestOrigin) {
   const allowOrigin = config.clientOrigins.includes("*")
@@ -116,11 +117,28 @@ export function healthPayload() {
 export function capabilitiesPayload(config) {
   return {
     contracts: CONTRACTS,
+    package_version: CONTRACTS.package_version,
+    chapters: chapterSummaries(),
+    catalog: catalogStats(),
+    features: {
+      continuous_campaign: true,
+      chapter_selection: false,
+      replay: false,
+      chapter_retry: false,
+      play_modes: PLAY_MODES,
+      battle_result: BATTLE_RESULTS,
+      reward_signals: PERMANENT_REWARD_SIGNALS,
+      reward_ledger: true,
+      chapter_review_facts: true,
+      server_validates_output: true,
+      transition_endpoint: "/api/adventure/transition"
+    },
     dungeons: [{ id: "dungeon1.corrupted-demon-king.runtime", version: "2026.09.04.1" }],
     templates: TEMPLATES,
     provider_chunk_mode: "delta_text",
     server_stream_mode: "incremental_passthrough",
-    server_validates_output: false,
+    // 顶层也保留一份，避免旧客户端只读顶层字段。
+    server_validates_output: true,
     limits: {
       max_runtime_yaml_chars: config.runtimeMaxChars,
       max_request_bytes: config.requestMaxBytes,

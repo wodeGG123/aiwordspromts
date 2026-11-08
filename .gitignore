@@ -3,3 +3,8 @@ node_modules/
 .DS_Store
 logs/ai-trace/
 .npm-cache/
+
+# v3 数据包（142MB）。引擎本体已 vendor 到 src/engine/vendor/v3/，
+# 由 `npm run sync:v3` 同步；数据包本体不进版本库、不进镜像。
+# 需要升级时把新包放回该目录再执行 npm run sync:v3。
+猎魔人世界_八章完整交互包_20261101_v3/

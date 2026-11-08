@@ -28,7 +28,14 @@ coverage
 README.md
 *.md
 docs/
-数据拆分包_20260904/
+
+# ⚠️ 数据拆分包_20260904/ 不能排除:
+#   src/runtime_contract.mjs 从该目录引入旧版通道的引擎入口,
+#   缺失会导致容器启动即 ERR_MODULE_NOT_FOUND。
+#   该目录只有 2.9MB,且是旧版客户端仍依赖的运行时依赖。
+# 猎魔人世界_八章完整交互包_20261101_v3/ (142MB) 不进镜像:
+#   v3 引擎已 vendor 到 src/engine/vendor/v3/,随 src 一起复制。
+猎魔人世界_八章完整交互包_20261101_v3/
 
 # Docker 相关自身(避免递归)
 Dockerfile

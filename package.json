@@ -8,6 +8,10 @@
     "start": "node src/index.js",
     "dev": "node --watch src/index.js",
     "test": "node --test \"src/**/*.test.mjs\"",
+    "sync:v3": "node tools/sync_v3.mjs",
+    "check:v3": "node tools/sync_v3.mjs --check",
+    "gen:v3-catalog": "node tools/gen_v3_catalog.mjs",
+    "check:v3-catalog": "node tools/gen_v3_catalog.mjs --check",
     "verify:bundle": "node 数据拆分包_20260904/04_验证工具/验证完整模拟_20260904.mjs",
     "regen:bundle": "node 数据拆分包_20260904/04_验证工具/重新生成预切片与模拟_20260904.mjs"
   },

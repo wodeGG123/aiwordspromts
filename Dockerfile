@@ -36,6 +36,15 @@ COPY --chown=nodejs:nodejs package.json ./
 COPY --chown=nodejs:nodejs src ./src
 COPY --chown=nodejs:nodejs apk-info.json ./
 
+# ⚠️ 旧版通道的数据包依赖:
+#   src/runtime_contract.mjs 从 ../数据拆分包_20260904/ 引入预切片积木入口与
+#   模块化入口。缺这个目录,容器启动即 ERR_MODULE_NOT_FOUND。
+#   .dockerignore 排除了该目录(避免 2.9MB 进入构建上下文),所以这里显式 COPY。
+COPY --chown=nodejs:nodejs 数据拆分包_20260904 ./数据拆分包_20260904
+
+# v3(连续八章冒险)引擎已 vendor 到 src/engine/vendor/v3/,
+# 由 `node tools/sync_v3.mjs` 从数据包同步而来,随 src 一起复制,无需额外 COPY。
+
 ENV NODE_ENV=production \
     PORT=3000 \
     PROXY_PORT=3001 \

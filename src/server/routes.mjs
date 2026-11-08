@@ -1,5 +1,13 @@
 import OpenAI from "openai";
 import { preparePromptFromRequest, RuntimeContractError } from "../runtime_contract.mjs";
+import {
+  advanceV3,
+  parseV3Output,
+  prepareV3Prompt,
+  transitionV3,
+  V3ContractError,
+  V3OutputError
+} from "../engine/v3_adapter.mjs";
 import { IdempotencyStore, FixedWindowRateLimiter } from "./idempotency_store.mjs";
 import { createModelService } from "./model_service.mjs";
 import { createAiDebugger } from "./ai_debug.mjs";
@@ -12,6 +20,7 @@ import {
   writeSseData,
   writeSseDone,
   writeSseError,
+  writeSseEvent,
   writeSseHeaders,
   writeSseComment
 } from "./http_utils.mjs";
@@ -43,6 +52,11 @@ function summarizeEventContext(eventContext) {
     scene_ids: eventContext.scene_ids,
     associated_scenes: summarizeEntries(eventContext.associated_scenes)
   };
+}
+
+// v3 请求体带 adventure 字段；旧通道用 runtime_yaml 字符串。
+function isV3Request(input) {
+  return Boolean(input && input.adventure !== undefined);
 }
 
 export function createApp({ config, modelClient } = {}) {
@@ -82,6 +96,46 @@ export function createApp({ config, modelClient } = {}) {
     };
   }
 
+  // ── v3 控制通道：纯状态迁移，不请求模型 ──────────────────────────
+  async function handleAdventureTransition(req, res, origin) {
+    if (req.method !== "POST") {
+      sendError(res, 405, "METHOD_NOT_ALLOWED", "请使用POST方法", config, origin);
+      return;
+    }
+
+    let release;
+    try {
+      limiter.check(clientIp(req));
+      release = beginRequest(clientIp(req));
+      const input = await readJsonBody(req, config.requestMaxBytes);
+      const result = transitionV3(input);
+      console.info(JSON.stringify({
+        component: "adventure-transition",
+        event: "transition_completed",
+        action: input?.action,
+        revision: result.adventure?.revision,
+        chapter_id: result.adventure?.runtime?.chapter_id ?? null,
+        campaign_status: result.adventure?.campaign?.status ?? null
+      }));
+      sendJson(res, 200, result, config, origin);
+    } catch (error) {
+      const status = error.code === "REQUEST_TOO_LARGE"
+        ? 413
+        : error.code === "RATE_LIMITED" || error.code === "CONCURRENT_LIMITED"
+          ? 429
+          : 400;
+      console.warn(JSON.stringify({
+        component: "adventure-transition",
+        event: "transition_rejected",
+        code: error.code || "TRANSITION_FAILED",
+        message: error.message
+      }));
+      sendError(res, status, error.code || "TRANSITION_FAILED", error.message, config, origin, error.details);
+    } finally {
+      release?.();
+    }
+  }
+
   async function handleChat(req, res, origin) {
     if (req.method !== "POST") {
       sendError(res, 405, "METHOD_NOT_ALLOWED", "请使用POST方法", config, origin);
@@ -109,32 +163,41 @@ export function createApp({ config, modelClient } = {}) {
         return;
       }
 
+      const v3 = isV3Request(input);
+
       let prepared;
       const promptAssemblyStartedAt = Date.now();
       try {
-        if (input?.runtime_yaml?.length > config.runtimeMaxChars) {
-          throw Object.assign(new Error("runtime_yaml超过长度限制"), { code: "RUNTIME_TOO_LARGE" });
+        if (v3) {
+          prepared = prepareV3Prompt(input);
+        } else {
+          if (input?.runtime_yaml?.length > config.runtimeMaxChars) {
+            throw Object.assign(new Error("runtime_yaml超过长度限制"), { code: "RUNTIME_TOO_LARGE" });
+          }
+          prepared = preparePromptFromRequest(input, {
+            blacklist: config.enablePromptFilter ? config.promptBlacklist : null
+          });
         }
-        prepared = preparePromptFromRequest(input, {
-          blacklist: config.enablePromptFilter ? config.promptBlacklist : null
-        });
       } catch (error) {
-        const status = error.code === "RUNTIME_TOO_LARGE" ? 413 : error instanceof RuntimeContractError ? 400 : 500;
+        const status = error.code === "RUNTIME_TOO_LARGE"
+          ? 413
+          : error instanceof V3ContractError || error instanceof RuntimeContractError
+            ? 400
+            : 500;
         console.warn(JSON.stringify({
-          component: "adventure-chat",
+          component: v3 ? "adventure-chat-v3" : "adventure-chat",
           event: "request_rejected",
           request_id: requestId,
           operation: input?.operation?.type,
           code: error.code || "PROMPT_ASSEMBLY_FAILED",
           message: error.message,
-          details: error.details,
-          event_context: summarizeEventContext(input?.event_context)
+          details: error.details
         }));
         sendError(res, status, error.code || "PROMPT_ASSEMBLY_FAILED", error.message, config, origin, error.details, requestId);
         return;
       }
       promptAssemblyMs = Date.now() - promptAssemblyStartedAt;
-      if (Array.isArray(prepared.assetFindings) && prepared.assetFindings.length > 0) {
+      if (!v3 && Array.isArray(prepared.assetFindings) && prepared.assetFindings.length > 0) {
         console.warn(JSON.stringify({
           component: "adventure-chat",
           event: "asset_scope_advisory",
@@ -146,32 +209,41 @@ export function createApp({ config, modelClient } = {}) {
       const systemPromptChars = prepared.messages.find(message => message.role === "system")?.content.length ?? 0;
       const userPromptChars = prepared.messages.find(message => message.role === "user")?.content.length ?? 0;
       const runtimeYamlChars = typeof prepared.runtimeYaml === "string" ? prepared.runtimeYaml.length : 0;
-      requestMetrics = { request_body_ms: requestBodyMs, prompt_assembly_ms: promptAssemblyMs, runtime_yaml_chars: runtimeYamlChars, system_prompt_chars: systemPromptChars, user_prompt_chars: userPromptChars };
+      requestMetrics = {
+        request_body_ms: requestBodyMs,
+        prompt_assembly_ms: promptAssemblyMs,
+        runtime_yaml_chars: runtimeYamlChars,
+        system_prompt_chars: systemPromptChars,
+        user_prompt_chars: userPromptChars
+      };
 
-      // 协议规定 current_team 必须出现在发给 AI 的 prompt 里,否则 AI 拿不到队员姓名/属性/职业/种族/性格
-      // (典型表现:剧情里不出现卡牌名,卡牌特性不进叙事,检定无法执行)
-      // 顶层 current_team 已自动注入 runtime_yaml;这里仅做诊断,缺了就打 warning
-      const currentTeamSource = prepared.currentTeamSource ?? "missing";
-      if (currentTeamSource === "missing") {
-        console.warn(JSON.stringify({
-          component: "adventure-chat",
-          event: "current_team_missing",
-          request_id: prepared.requestId,
-          operation: prepared.operationType,
-          hint: "请确认前端在请求里传了 current_team(顶层数组或 runtime_yaml 内的 current_team: 块),否则 AI 无法感知上阵卡牌"
-        }));
-      } else {
-        const teamCount = Array.isArray(prepared.currentTeam) ? prepared.currentTeam.length : (userPromptChars > 0 ? 1 : 0);
-        console.info(JSON.stringify({
-          component: "adventure-chat",
-          event: "current_team_present",
-          request_id: prepared.requestId,
-          source: currentTeamSource,
-          member_count: teamCount
-        }));
+      // 旧通道的诊断：协议规定 current_team 必须出现在发给 AI 的 prompt 里。
+      if (!v3) {
+        const currentTeamSource = prepared.currentTeamSource ?? "missing";
+        if (currentTeamSource === "missing") {
+          console.warn(JSON.stringify({
+            component: "adventure-chat",
+            event: "current_team_missing",
+            request_id: prepared.requestId,
+            operation: prepared.operationType,
+            hint: "请确认前端在请求里传了 current_team(顶层数组或 runtime_yaml 内的 current_team: 块),否则 AI 无法感知上阵卡牌"
+          }));
+        } else {
+          const teamCount = Array.isArray(prepared.currentTeam) ? prepared.currentTeam.length : (userPromptChars > 0 ? 1 : 0);
+          console.info(JSON.stringify({
+            component: "adventure-chat",
+            event: "current_team_present",
+            request_id: prepared.requestId,
+            source: currentTeamSource,
+            member_count: teamCount
+          }));
+        }
       }
 
-      const fingerprint = hashRequest({ runtime_yaml: input.runtime_yaml, operation: input.operation, state_version: input.state_version });
+      // v3 的幂等指纹取自存档游标；旧通道取 runtime_yaml 摘要。
+      const fingerprint = v3
+        ? hashRequest(prepared.fingerprintSource)
+        : hashRequest({ runtime_yaml: input.runtime_yaml, operation: input.operation, state_version: input.state_version });
       const result = idempotency.begin(prepared.requestId, fingerprint);
       if (!result.created) {
         if (result.entry.fingerprint !== fingerprint) {
@@ -185,7 +257,7 @@ export function createApp({ config, modelClient } = {}) {
       idempotency.update(prepared.requestId, { status: "streaming" });
       const startedAt = Date.now();
       const log = (event, fields = {}) => console.info(JSON.stringify({
-        component: "adventure-chat",
+        component: v3 ? "adventure-chat-v3" : "adventure-chat",
         event,
         request_id: prepared.requestId,
         operation: prepared.operationType,
@@ -212,18 +284,21 @@ export function createApp({ config, modelClient } = {}) {
         model: config.aiModel,
         maxTokens: config.maxCompletionTokens,
         messages: prepared.messages,
-        runtimeYaml: input.runtime_yaml
+        runtimeYaml: v3 ? prepared.userPrompt : input.runtime_yaml
       });
 
       let streamMetrics;
       try {
         let forwardedChars = 0;
+        // v3 需要在流结束后用完整 YAML 做权威校验，因此必须累积原始文本。
+        const rawChunks = [];
         for await (const delta of modelService.stream(prepared.messages, {
           signal: controller.signal,
           onMetrics: metrics => { streamMetrics = metrics; }
         })) {
           aiDebugger.appendDelta(trace, delta);
           writeSseData(res, delta);
+          if (v3) rawChunks.push(delta);
           forwardedChars += delta.length;
         }
         const summary = { forwarded_chars: forwardedChars, ...(streamMetrics || {}) };
@@ -233,6 +308,56 @@ export function createApp({ config, modelClient } = {}) {
           await aiDebugger.finish(trace, { status: "cancelled", metrics: streamMetrics });
           return;
         }
+
+        if (v3) {
+          // ── 服务端权威校验 + 状态推进 ──────────────────────────
+          // ⚠️ 校验失败绝不推进任何状态；客户端保留原存档并可重试。
+          const rawYaml = rawChunks.join("");
+          let aiOutput;
+          try {
+            aiOutput = parseV3Output(rawYaml, input.operation);
+          } catch (error) {
+            idempotency.update(prepared.requestId, {
+              status: "failed",
+              error: { code: error.code, message: error.message }
+            });
+            log("output_rejected", { code: error.code, reason: error.message });
+            writeSseError(res, {
+              code: error.code || "V3_OUTPUT_INVALID",
+              message: error.message,
+              ...(error.details ? { details: error.details } : {})
+            });
+            await aiDebugger.finish(trace, { status: "failed", error, metrics: streamMetrics });
+            return;
+          }
+
+          let advanced;
+          try {
+            advanced = advanceV3(prepared.premigratedAdventure, input.operation, aiOutput);
+          } catch (error) {
+            idempotency.update(prepared.requestId, {
+              status: "failed",
+              error: { code: error.code || "V3_ADVANCE_FAILED", message: error.message }
+            });
+            log("advance_failed", { code: error.code, reason: error.message });
+            writeSseError(res, {
+              code: error.code || "V3_ADVANCE_FAILED",
+              message: error.message
+            });
+            await aiDebugger.finish(trace, { status: "failed", error, metrics: streamMetrics });
+            return;
+          }
+
+          // 状态事件必须先于 [DONE]，客户端据此落盘新存档。
+          writeSseEvent(res, "state", JSON.stringify({
+            adventure: advanced.adventure,
+            state_version: advanced.adventure?.runtime?.state_version ?? null,
+            revision: advanced.adventure?.revision ?? null,
+            request_guard: prepared.requestGuard,
+            changed: advanced.changed
+          }));
+        }
+
         idempotency.update(prepared.requestId, { status: "completed" });
         writeSseDone(res);
         log("stream_completed", summary);
@@ -280,6 +405,10 @@ export function createApp({ config, modelClient } = {}) {
     }
     if (req.url === "/api/chat") {
       await handleChat(req, res, origin);
+      return;
+    }
+    if (req.url === "/api/adventure/transition") {
+      await handleAdventureTransition(req, res, origin);
       return;
     }
     sendError(res, 404, "NOT_FOUND", "未找到请求的端点", config, origin);
