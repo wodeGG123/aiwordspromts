@@ -279,6 +279,11 @@ describe("v3 AI 通道 HTTP", () => {
       assert.equal(state.adventure.runtime.pending_interaction.event_id, event.event_id);
       assert.equal(state.request_guard.session_revision, campaign.revision);
       assert.equal(state.request_guard.run_id, campaign.runtime.run_id);
+      // ⚠️ state 事件必须带上服务端权威校验过的 AI 文档，
+      //    客户端直接展示它，不必再自行解析 YAML。
+      assert.ok(state.output, "state 事件必须带 output");
+      assert.equal(state.output.event_details.template_name, "新一轮事件");
+      assert.equal(state.output.event_details.event_id, event.event_id);
     } finally { await close(server); }
   });
 
@@ -404,6 +409,98 @@ describe("v3 AI 通道 HTTP", () => {
       assert.equal(response.status, 400);
       const payload = await response.json();
       assert.equal(payload.error.code, "V3_CONTRACT_INVALID");
+    } finally { await close(server); }
+  });
+
+  // ── 回归（2026-11-09 线上事故）：AI 在结算里自造 NPC 状态 ──────────
+  //
+  // 事故现象：结算提交被引擎拒绝（「NPC变化未获授权」），state 事件不下发，
+  // 玩家卡在当前轮无法继续。这里从 HTTP 层验证修复后的行为：
+  //   1. 结算**必须**成功下发 state；
+  //   2. 下发给客户端的 output 必须是**归一化后**的版本。
+  it("结算里自造 NPC 状态时仍能提交，并下发归一化后的 output", async () => {
+    const campaign = newCampaign();
+    const event = R.events.CH01_E001;
+    let runtime = R.acceptNewEvent(campaign.runtime, newEventOutput(campaign.runtime, event));
+    runtime = R.selectOption(runtime, 1);
+    runtime = R.acceptResolution(runtime, {
+      event_details: { template_name: "检定", analysis: "队伍完成了这次尝试。", result: "成功" }
+    });
+    const pending = { ...campaign, runtime };
+
+    // 构造一个「自造 NPC 状态」的结算输出（授权为 []，AI 却写了信任）。
+    const settlement = {
+      event_details: {
+        template_name: "结算",
+        event_id: event.event_id,
+        current_round: runtime.current_round,
+        supply_value: runtime.supply_value,
+        corruption_value: runtime.corruption_value,
+        current_theme: event.title,
+        current_type: "主线事件结算",
+        scene_name: runtime.pending_interaction.scene_name,
+        steps: [{ narration: "行动有了结果。" }],
+        summary: [{ summary: "无物品或数值变化" }],
+        story_patch: {
+          completed_event_id: event.event_id,
+          selected_option_id: 1,
+          outcome: "success",
+          run_archetype: runtime.story_state.run_archetype,
+          run_modifier_ids: copy(runtime.story_state.run_modifier_ids),
+          add_flags: ["CH01_N1_RESOLVED"],
+          remove_flags: [],
+          route_delta: { combat: 0, scheme: 1, cleanse: 0 },
+          npc_state_updates: [{ npc: "村长艾德", state: "trusted" }],
+          memory_notes: [],
+          unresolved_hooks_added: [],
+          unresolved_hooks_resolved: []
+        },
+        final_chapter: false
+      }
+    };
+
+    const client = {
+      chat: {
+        completions: {
+          create: async function* () {
+            yield { choices: [{ delta: { content: R.yaml(settlement) } }] };
+          }
+        }
+      }
+    };
+    const { server, base } = await startTestServer({ client });
+    try {
+      const response = await fetch(`${base}/api/chat`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          package_version: V3_PACKAGE_VERSION,
+          adventure: pending,
+          operation: {
+            request_id: "http-settle-npc-bad-001",
+            type: "settle_check",
+            expected_template_name: "结算",
+            event_id: event.event_id,
+            option_id: 1,
+            check_result: "成功"
+          }
+        })
+      });
+      const text = await response.text();
+      assert.equal(response.status, 200);
+      assert.doesNotMatch(text, /NPC变化未获授权/);
+
+      const state = extractState(text);
+      assert.ok(state, "修复后结算必须成功下发 state");
+      assert.equal(state.adventure.runtime.pending_interaction, null);
+      assert.equal(state.adventure.runtime.story_state.completed_events.length, 1);
+      // 自造的 NPC 状态不得进入存档。
+      assert.deepEqual(state.adventure.runtime.story_state.npc_states, []);
+      // 下发给客户端的 output 必须是归一化后的版本。
+      assert.deepEqual(
+        state.output.event_details.story_patch.npc_state_updates,
+        []
+      );
     } finally { await close(server); }
   });
 });

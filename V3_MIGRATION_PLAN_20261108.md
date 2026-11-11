@@ -405,12 +405,12 @@ commitSettlement 成功
 |---|---|---|---|
 | P0 | Docker 修复 + `v3_engine.mjs` + `v3_catalog.mjs` + capabilities 增补 | — | ✅ 完成 |
 | P1 | `v3_adapter.mjs` 重写：校验 + 预迁移 + prompt 装配 + `advanceV3` + SSE `event: state` + `transitionV3` 控制通道 | P0 | ✅ 完成 |
-| P2 | 服务端单测 `v3_adapter.test.mjs` + `server_v3.test.mjs`（HTTP 端到端） | P1 | ✅ 完成（148 测试全绿） |
+| P2 | 服务端单测 `v3_adapter.test.mjs` + `server_v3.test.mjs`（HTTP 端到端） | P1 | ✅ 完成（150 测试全绿） |
 | P3 | 客户端模型层（`lib/adventure/v3/adventure_models.dart`） | P0 | ✅ 完成 |
 | P4 | 客户端 `adventure_store` + `adventure_controller` + `adventure_v3_api` + `adventure_operations` + 事件目录生成 | P3 | ✅ 完成 |
-| P5 | 客户端 UI：campaign 页 + story 页接入 + 撤退按钮 + 奖励弹窗 | P4 | ⬜ 未开始 |
+| P5 | 客户端 UI：campaign 页 + story 页接入 + 撤退按钮 + 奖励弹窗 | P4 | ✅ 完成 |
 | P6 | 奖励邮件链路 + `confirm_reward` operation | P1, P5 | 🟡 服务端就绪 + 客户端 `adventure_reward_service.dart` 就绪；邮件接口待后端 |
-| P7 | 旧副本入口下线 + 旧存档清理 | P5 | ⬜ 未开始 |
+| P7 | 旧副本入口下线 + 旧存档清理 | P5 | ✅ 完成 |
 
 ### 5.1 已落地的关键实现说明
 
@@ -434,7 +434,13 @@ commitSettlement 成功
 | `lib/adventure/v3/adventure_controller.dart` | 入口层 + 串行队列；过期回包拦截（`request_guard` 比对） |
 | `lib/adventure/v3/adventure_v3_api.dart` | AI 通道（`event: state` 分流）+ 控制通道客户端 |
 | `lib/adventure/v3/adventure_reward_service.dart` | 永久奖励发放（D2 邮件 + D9 本地待发队列） |
+| `lib/adventure/v3/adventure_v3_session.dart` | 应用级单例会话；`settlePendingRewards()` 统一做「发奖 + 回执确认」（关章前必调） |
+| `lib/adventure/v3/adventure_v3_entry.dart` | 入口参数装配：`campaign_id` / `run_id` / `current_team` / `relics` / 难度 |
+| `lib/adventure/v3/adventure_v3_output.dart` | 五模板展示模型（结算摘要 / 检定分析 / 战斗敌人 / 终章正文） |
 | `lib/adventure/v3/adventure_catalog.dart` + `_data.dart` | 客户端内置事件目录（生成文件，勿手改） |
+| `lib/pages/adventure/adventure_campaign_page.dart` | 八章总览页：章节卡状态 + 开始/继续/下一章/重开 + 只读归档 |
+| `lib/pages/adventure/adventure_v3_story_page.dart` | 章内剧情页：相位机驱动 + 打字机 + 选项 + 战斗撤退 + 奖励弹窗 + 终章归档 |
+| `lib/pages/adventure/adventure_battle_seed.dart` | v3 剧情战斗的我方出战种子装配 |
 
 ### 5.2 实测补充结论（2026-11-08 修正）
 
@@ -447,6 +453,10 @@ commitSettlement 成功
 | C5 | **无状态服务端无法判定「过期 revision」**：服务端没有「当前版本」概念，只能校验存档**内部一致性**（`runtime.campaign_revision === campaign.revision`、章游标 = `chapter_results.length + 1`）。过期判定必须由客户端用 `request_guard` 做 |
 | C6 | **战斗事件模板无 `event_id` 字段**：v3 parser 对「战斗事件」要求 root 恰好是 `{event_details, combat_start, enemies}`，且 `event_details` 恰好是 `{template_name, current_round, supply_value, corruption_value, current_theme, current_type, scene_name, steps}`——**多写 `event_id` 会报 `root字段不匹配`** |
 | C7 | **`choose` 的 `selected_option` 校验发生在预迁移之后**：客户端少传/改写字段会被引擎以 `selected_option不一致` 拒绝；客户端必须保存完整 `event_output` |
+| C8 | **`close_chapter` / `promoteChapter` 会硬校验「无 pending 奖励回执」**：`reward_requests` 里存在 `status == 'pending'` 时直接拒绝（`章节关闭前先同步已有奖励回执`）。因此进入下一章 / 关章前必须先 `confirm_reward` 全部条目 |
+| C9 | **直选结算（`choose` + 结算模板）服务端一次性完成结算**：`commitSettlement` 后 `pending_interaction` 已被清空，客户端收到 SSE `state` 时 `pending == null`，应直接走「结算后」分支而不是再请求一次事件 |
+| C10 | **`confirm_reward` 会让 `state_version` +1**：确认回执后运行态版本号变化，客户端必须以服务端返回值为准，不能缓存旧 `state_version` |
+| C11 | **旧 v4 存档 key 前缀是 `adventure_runtime_v1:<run_id>`**：v3 存档使用 `adventure_v3_save`，两者互不冲突；D11 清理时按前缀批量删除旧 key |
 
 ---
 

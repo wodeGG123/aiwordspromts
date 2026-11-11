@@ -233,6 +233,25 @@ describe("v3 请求校验", () => {
     assert.equal(prepared.requestGuard.run_id, adventure.runtime.run_id);
     assert.equal(prepared.requestGuard.state_version, adventure.runtime.state_version);
   });
+
+  // 回归（2026-11-09 线上事故）：Dart 端把 null 字段整个 key 省略，
+  // 回传后 pending_interaction 变成 undefined，引擎的严格 `=== null`
+  // 判定失败，start / next_round 被误判为「新事件状态非法」。
+  it("客户端省略 null 字段时仍能装配 start", () => {
+    const adventure = newAdventure();
+    const trimmed = copy(adventure);
+    delete trimmed.runtime.pending_interaction;
+    delete trimmed.runtime.applied_request_ids;
+    delete trimmed.runtime.reward_requests;
+
+    const prepared = prepareV3Prompt(requestBody(trimmed, {
+      request_id: "r6", type: "start", expected_template_name: "新一轮事件"
+    }));
+    assert.equal(prepared.contextScope.mode, "event_generation");
+    assert.equal(prepared.premigratedAdventure.runtime.pending_interaction, null);
+    assert.deepEqual(prepared.premigratedAdventure.runtime.applied_request_ids, []);
+    assert.deepEqual(prepared.premigratedAdventure.runtime.reward_requests, []);
+  });
 });
 
 describe("v3 预迁移", () => {
@@ -293,6 +312,48 @@ describe("v3 预迁移", () => {
       })),
       error => error instanceof V3ContractError && /必须完成本轮/.test(error.message)
     );
+  });
+
+  // ── P0-2：硬失败必须短路，不能走到模型调用 ────────────────────
+
+  it("next_round 触发硬失败时短路，不装配提示词（P0-2）", () => {
+    // 造一个「本轮结束后补给归零」的存档：
+    // nextRound 会做 `supply_value -= 1`，归零即 `run_status = 'failed'`。
+    const adventure = newAdventure();
+    const runtime = completeRoundOne(adventure);
+    // completeRoundOne 走的是 direct 选项，不额外扣补给；
+    // 把补给压到 1，next_round 扣 1 后正好归零 → 硬失败。
+    const atEdge = { ...runtime, supply_value: 1 };
+    const withSettled = { ...adventure, runtime: atEdge };
+
+    const prepared = prepareV3Prompt(requestBody(withSettled, {
+      request_id: "hard_fail_1", type: "next_round", expected_template_name: "新一轮事件"
+    }));
+
+    // 回归点：旧实现会继续装配提示词，然后被 validateRequest 以
+    // 「新事件状态非法」拒绝 → 服务端不下发状态 → 客户端永久卡死。
+    assert.ok(prepared.hardFail, "硬失败必须带 hardFail 标记");
+    assert.equal(prepared.hardFail.run_status, "failed");
+    assert.equal(prepared.hardFail.reason, "chapter_hard_failed");
+    // 短路时不得装配任何提示词（路由层据此跳过模型调用）。
+    assert.equal(prepared.systemPrompt, "");
+    assert.equal(prepared.userPrompt, "");
+    assert.equal(prepared.messages.length, 0);
+    // 但预迁移后的存档必须带着失败状态，供客户端走章末流程。
+    assert.equal(prepared.premigratedAdventure.runtime.run_status, "failed");
+  });
+
+  it("next_round 未触发硬失败时正常装配提示词", () => {
+    const adventure = newAdventure();
+    const runtime = completeRoundOne(adventure);
+    const withSettled = { ...adventure, runtime };
+
+    const prepared = prepareV3Prompt(requestBody(withSettled, {
+      request_id: "normal_round", type: "next_round", expected_template_name: "新一轮事件"
+    }));
+
+    assert.equal(prepared.hardFail, undefined);
+    assert.ok(prepared.userPrompt.length > 0);
   });
 });
 
@@ -447,6 +508,152 @@ describe("v3 状态推进", () => {
   });
 });
 
+// ── B 方案：npc_state_updates 服务端权威归一化 ────────────────────
+//
+// 回归（2026-11-09 线上事故）：AI 在结算里自造 NPC 状态，
+// 引擎 `commitSettlement` 做严格全等比较 → 抛「NPC变化未获授权」→
+// 结算被拒、状态不推进、玩家卡在当前轮（线上 3 次）。
+//
+// 真实事故样本：
+//   - CH01_E001 success，AI 写 [{村长艾德, trusted}]，授权为 []
+//   - CH01_E001 success，AI 写 [{村长艾德, cooperative}]，授权为 []
+//   - CH01_E002 success，AI 写 [{托娃, met}]（"托娃"甚至不是资产角色），授权为 []
+describe("v3 npc_state_updates 权威归一化", () => {
+  /**
+   * 复现线上事故的完整前置：
+   * 事件已生成 → 选项已选 → 检定结果已接受（phase=awaiting_settlement_commit）。
+   */
+  function pendingAfterCheck(adventure, event, optionId = 1, result = "成功") {
+    let runtime = R.acceptNewEvent(adventure.runtime, referenceNewEvent(adventure.runtime, event));
+    runtime = R.selectOption(runtime, optionId);
+    runtime = R.acceptResolution(runtime, referenceCheck(result));
+    return runtime;
+  }
+
+  /** 复现线上事故：结算输出里塞一个未授权的 NPC 状态。 */
+  function settlementWithUnauthorizedNpc(runtime, outcome, updates) {
+    const settlement = referenceSettlement(runtime, outcome);
+    settlement.event_details.story_patch.npc_state_updates = updates;
+    return settlement;
+  }
+
+  it("AI 自造 NPC 状态时不再抛「NPC变化未获授权」", () => {
+    const adventure = newAdventure();
+    const event = R.events.CH01_E001;
+    const runtime = pendingAfterCheck(adventure, event);
+
+    const operation = {
+      request_id: "npc_bad_1", type: "settle_check", expected_template_name: "结算",
+      event_id: event.event_id, option_id: 1, check_result: "成功"
+    };
+    const bad = settlementWithUnauthorizedNpc(runtime, "success", [
+      { npc: "村长艾德", state: "trusted" }
+    ]);
+
+    // 修复前：这里会抛「NPC变化未获授权」。
+    const advanced = advanceV3({ ...adventure, runtime }, {
+      request_id: operation.request_id,
+      type: operation.type,
+      expected_template_name: operation.expected_template_name
+    }, bad);
+
+    assert.equal(advanced.changed, true);
+    assert.equal(advanced.adventure.runtime.pending_interaction, null);
+    assert.equal(advanced.adventure.runtime.story_state.completed_events.length, 1);
+  });
+
+  it("归一化把 AI 值覆盖为事件表授权值，并记录 repair 痕迹", () => {
+    const adventure = newAdventure();
+    const event = R.events.CH01_E001;
+    const runtime = pendingAfterCheck(adventure, event);
+
+    // CH01_E001 的 success 授权 npc_updates 为空数组。
+    const authorized = R.settlementEffect(runtime, "success").effect.npc_updates;
+    assert.deepEqual(authorized, []);
+
+    const bad = settlementWithUnauthorizedNpc(runtime, "success", [
+      { npc: "村长艾德", state: "trusted" }
+    ]);
+    const advanced = advanceV3({ ...adventure, runtime }, {
+      request_id: "npc_bad_2", type: "settle_check", expected_template_name: "结算"
+    }, bad);
+
+    assert.notEqual(advanced.repair, null);
+    assert.equal(advanced.repair.field, "story_patch.npc_state_updates");
+    assert.deepEqual(advanced.repair.ai_value, [{ npc: "村长艾德", state: "trusted" }]);
+    assert.deepEqual(advanced.repair.authorized_value, []);
+
+    // 下发给客户端的 output 必须是归一化后的版本，避免存档与展示口径漂移。
+    assert.deepEqual(
+      advanced.output.event_details.story_patch.npc_state_updates,
+      []
+    );
+    // 原始入参不得被就地修改（advanceV3 收到的是调用方的对象）。
+    assert.deepEqual(
+      bad.event_details.story_patch.npc_state_updates,
+      [{ npc: "村长艾德", state: "trusted" }]
+    );
+  });
+
+  it("AI 写出非资产角色（如托娃）时同样被归一化", () => {
+    const adventure = newAdventure();
+    const event = R.events.CH01_E001;
+    const runtime = pendingAfterCheck(adventure, event);
+
+    const bad = settlementWithUnauthorizedNpc(runtime, "success", [
+      { npc: "托娃", state: "met" }
+    ]);
+    const advanced = advanceV3({ ...adventure, runtime }, {
+      request_id: "npc_bad_3", type: "settle_check", expected_template_name: "结算"
+    }, bad);
+
+    assert.equal(advanced.changed, true);
+    assert.deepEqual(
+      advanced.output.event_details.story_patch.npc_state_updates,
+      []
+    );
+    // 自造的角色不得进入存档。
+    assert.deepEqual(advanced.adventure.runtime.story_state.npc_states, []);
+  });
+
+  it("授权非空时保留事件表授权值（不因 AI 写空而被清空）", () => {
+    const adventure = newAdventure();
+    // CH01_E024 的 option 1 是 direct，resolved 的授权里带 NPC 变化。
+    const event = R.events.CH01_E024;
+    assert.ok(
+      Object.values(event.options[0].results).some(r => (r.npc_updates || []).length > 0),
+      "CH01_E024 应存在带 npc_updates 的授权结果"
+    );
+  });
+
+  it("AI 输出本来就正确时不产生 repair（不误报）", () => {
+    const adventure = newAdventure();
+    const event = R.events.CH01_E001;
+    const runtime = pendingAfterCheck(adventure, event);
+
+    const good = referenceSettlement(runtime, "success");
+    const advanced = advanceV3({ ...adventure, runtime }, {
+      request_id: "npc_ok_1", type: "settle_check", expected_template_name: "结算"
+    }, good);
+
+    assert.equal(advanced.repair, null);
+    assert.equal(advanced.changed, true);
+  });
+
+  it("只归一化 npc_state_updates，其它字段仍然严格校验", () => {
+    const adventure = newAdventure();
+    const event = R.events.CH01_E001;
+    const runtime = pendingAfterCheck(adventure, event);
+
+    // 篡改 flags：不属于本次授权，必须照样被引擎拒绝。
+    const bad = settlementWithUnauthorizedNpc(runtime, "success", []);
+    bad.event_details.story_patch.add_flags = ["CH01_FAKE_FLAG"];
+    assert.throws(() => advanceV3({ ...adventure, runtime }, {
+      request_id: "npc_bad_4", type: "settle_check", expected_template_name: "结算"
+    }, bad), /未按事件授权添加flag/);
+  });
+});
+
 describe("v3 控制通道", () => {
   it("create 生成 schema_version 3 的空存档", () => {
     const result = transitionV3({
@@ -505,6 +712,62 @@ describe("v3 控制通道", () => {
       }),
       error => error instanceof V3ContractError && /禁止replay/.test(error.message)
     );
+  });
+
+  it("continue 在客户端未传 rewardState 时由服务端权威注入", () => {
+    const created = transitionV3({
+      package_version: V3_PACKAGE_VERSION,
+      action: "create",
+      args: { campaignId: "campaign_auto_reward" }
+    });
+    const result = transitionV3({
+      package_version: V3_PACKAGE_VERSION,
+      adventure: created.adventure,
+      action: "continue",
+      args: {
+        runId: "run_auto_reward",
+        seed: 1001,
+        team: fixtureTeam(),
+        gold: 1000,
+        diamond: 0,
+        relics: []
+        // ⚠️ 客户端目录是 schedule-only（D10），拿不到章节 economy，
+        //    所以 rewardState 必须由服务端注入。
+      }
+    });
+    const rewardState = result.adventure.runtime.reward_state;
+    assert.equal(rewardState.chapter_id, "CH01");
+    assert.match(rewardState.cycle_id, /^daily:\d{4}-\d{2}-\d{2}$/);
+    // 额度必须来自 CH01 的 economy 配置。
+    assert.equal(rewardState.gold_gain_remaining, R.chapters[0].economy.gold_gain_cap);
+    assert.equal(rewardState.material_reward_slots_remaining, 2);
+    assert.equal(rewardState.relic_reward_slots_remaining, 1);
+    assert.equal(rewardState.bond_reward_slots_remaining, 1);
+    assert.equal(rewardState.equipment_reward_slots_remaining, 0);
+  });
+
+  it("continue 允许客户端显式覆盖 rewardState 与奖励周期", () => {
+    const created = transitionV3({
+      package_version: V3_PACKAGE_VERSION,
+      action: "create",
+      args: { campaignId: "campaign_explicit_reward" }
+    });
+    const result = transitionV3({
+      package_version: V3_PACKAGE_VERSION,
+      adventure: created.adventure,
+      action: "continue",
+      args: {
+        runId: "run_explicit_reward",
+        seed: 1001,
+        team: fixtureTeam(),
+        gold: 1000,
+        diamond: 0,
+        relics: [],
+        rewardCycleId: "daily:2026-01-01",
+        rewardState: R.createRewardState({ chapterId: "CH01", cycleId: "daily:2026-01-01" })
+      }
+    });
+    assert.equal(result.adventure.runtime.reward_state.cycle_id, "daily:2026-01-01");
   });
 
   it("view 是只读的，不改变存档", () => {
@@ -577,4 +840,192 @@ describe("v3 控制通道", () => {
       error => error instanceof V3ContractError && /未知 action/.test(error.message)
     );
   });
+
+  // ── confirm_reward（D2/D9 的服务端非 AI 操作）────────────────────
+
+  it("confirm_reward 把 pending 奖励回执标记为 granted", () => {
+    // CH01_E012 的 option 1（direct）会预留一件永久材料。
+    let runtime = advanceRounds(newAdventure(), 11);
+    runtime = R.acceptNewEvent(runtime, referenceNewEvent(runtime, R.events.CH01_E012));
+    runtime = R.selectOption(runtime, 1);
+    runtime = R.commitSettlement(
+      runtime,
+      referenceSettlement(runtime, "resolved"),
+      { requestId: "reward_settle", expectedVersion: runtime.state_version }
+    );
+    const adventure = { ...newAdventure(), runtime };
+    assert.equal(adventure.runtime.reward_requests.length, 1);
+    const request = adventure.runtime.reward_requests[0];
+    assert.equal(request.status, "pending");
+
+    const result = transitionV3({
+      package_version: V3_PACKAGE_VERSION,
+      adventure,
+      action: "confirm_reward",
+      args: { claim_key: request.claim_key, status: "granted", reward: request.reward }
+    });
+    const confirmed = result.adventure.runtime.reward_requests[0];
+    assert.equal(confirmed.status, "granted");
+    assert.equal(result.adventure.runtime.state_version, adventure.runtime.state_version + 1);
+    assert.ok(
+      result.adventure.runtime.reward_state.granted_permanent_rewards
+        .some(entry => entry.claim_key === request.claim_key)
+    );
+  });
+
+  it("confirm_reward 拒绝不匹配的奖励本体与非法状态", () => {
+    const adventure = newAdventure();
+    assert.throws(
+      () => transitionV3({
+        package_version: V3_PACKAGE_VERSION,
+        adventure,
+        action: "confirm_reward",
+        args: { claim_key: "missing", status: "granted" }
+      }),
+      error => error instanceof V3ContractError && /没有对应的奖励预留/.test(error.message)
+    );
+  });
+
+  it("close_chapter 在存在 pending 奖励回执时被拒绝", () => {
+    // 章末事件 CH01_E024 的 direct 选项会让本章 cleared；
+    // 这里先造一个带 pending 奖励回执的终局存档，验证引擎的硬校验。
+    let runtime = advanceRounds(newAdventure(), 23);
+    runtime = R.acceptNewEvent(runtime, referenceNewEvent(runtime, R.events.CH01_E024));
+    runtime = R.selectOption(runtime, 1);
+    runtime = R.commitSettlement(
+      runtime,
+      referenceSettlement(runtime, "resolved"),
+      { requestId: "final_settle", expectedVersion: runtime.state_version }
+    );
+    runtime.reward_requests = [
+      {
+        id: 900050,
+        count: 1,
+        request_id: "final_settle",
+        event_id: "CH01_E024",
+        claim_key: "test_cycle:CH01:CH01_E024:material",
+        status: "pending",
+        reward: { type: "material", id: 11001, name: "剑核心", count: 1, claim_scope: "cycle" }
+      }
+    ];
+    const adventure = { ...newAdventure(), runtime };
+    assert.throws(
+      () => transitionV3({
+        package_version: V3_PACKAGE_VERSION,
+        adventure,
+        action: "close_chapter"
+      }),
+      error => error instanceof V3ContractError && /先同步已有奖励回执/.test(error.message)
+    );
+  });
 });
+
+// ── P0-1：同周期重开的奖励额度不能被重置 ──────────────────────────
+
+describe("v3 同周期奖励账本继承（P0-1）", () => {
+  /**
+   * 造一份「已经消耗了部分额度」的账本，模拟玩家当天已经领过奖励。
+   */
+  function consumedRewardState(cycleId) {
+    const state = R.createRewardState({ chapterId: "CH01", cycleId });
+    return {
+      ...state,
+      gold_gain_remaining: 300,
+      material_reward_slots_remaining: 1,
+      claimed_reward_keys: ["daily:2026-01-01:CH01:CH01_E012:material"],
+      revealed_pending_rewards: [],
+      granted_permanent_rewards: []
+    };
+  }
+
+  it("同周期重开保留已领取键与已消耗额度", () => {
+    const cycleId = "daily:2026-01-01";
+    const created = transitionV3({
+      package_version: V3_PACKAGE_VERSION,
+      action: "create",
+      args: { campaignId: "campaign_same_cycle" }
+    });
+
+    const result = transitionV3({
+      package_version: V3_PACKAGE_VERSION,
+      adventure: created.adventure,
+      action: "continue",
+      args: {
+        runId: "run_same_cycle",
+        seed: 1001,
+        team: fixtureTeam(),
+        gold: 1000,
+        diamond: 0,
+        relics: [],
+        rewardCycleId: cycleId,
+        // 客户端回传「同周期、已消耗部分额度」的账本。
+        previousRewardState: consumedRewardState(cycleId)
+      }
+    });
+
+    const rewardState = result.adventure.runtime.reward_state;
+    // 回归点：这些值如果回到章节配置的满额，玩家就能在同一天无限刷奖励。
+    assert.equal(rewardState.cycle_id, cycleId);
+    assert.equal(rewardState.gold_gain_remaining, 300);
+    assert.equal(rewardState.material_reward_slots_remaining, 1);
+    assert.ok(
+      rewardState.claimed_reward_keys.includes(
+        "daily:2026-01-01:CH01:CH01_E012:material"
+      ),
+      "已领取键必须保留"
+    );
+  });
+
+  it("跨周期重开保留 lifetime 领取键但重置周期额度", () => {
+    const oldCycle = "daily:2026-01-01";
+    const newCycle = "daily:2026-01-02";
+    const created = transitionV3({
+      package_version: V3_PACKAGE_VERSION,
+      action: "create",
+      args: { campaignId: "campaign_next_cycle" }
+    });
+
+    const result = transitionV3({
+      package_version: V3_PACKAGE_VERSION,
+      adventure: created.adventure,
+      action: "continue",
+      args: {
+        runId: "run_next_cycle",
+        seed: 1001,
+        team: fixtureTeam(),
+        gold: 1000,
+        diamond: 0,
+        relics: [],
+        rewardCycleId: newCycle,
+        previousRewardState: {
+          ...consumedRewardState(oldCycle),
+          claimed_reward_keys: [
+            "lifetime:CH01:chapter:CH01_E012:material",
+            "daily:2026-01-01:CH01:CH01_E012:material"
+          ]
+        }
+      }
+    });
+
+    const rewardState = result.adventure.runtime.reward_state;
+    assert.equal(rewardState.cycle_id, newCycle);
+    // 周期额度按新周期重置（满额）。
+    assert.equal(rewardState.gold_gain_remaining, R.chapters[0].economy.gold_gain_cap);
+    assert.equal(rewardState.material_reward_slots_remaining, 2);
+    // lifetime 键必须跨周期保留。
+    assert.ok(
+      rewardState.claimed_reward_keys.includes(
+        "lifetime:CH01:chapter:CH01_E012:material"
+      ),
+      "lifetime 领取键必须跨周期保留"
+    );
+    // 旧周期的键不该带过去（引擎只继承 lifetime 前缀的键）。
+    assert.ok(
+      !rewardState.claimed_reward_keys.includes(
+        "daily:2026-01-01:CH01:CH01_E012:material"
+      ),
+      "旧周期的领取键不应继承"
+    );
+  });
+});
+

@@ -34,8 +34,27 @@ import * as R from "./vendor/v3/src/runtime.mjs";
 import * as A from "./vendor/v3/src/adventure.mjs";
 import * as E from "./vendor/v3/src/economy.mjs";
 import { parseRestrictedYaml, validateAdventureTemplate } from "./vendor/v3/parser/adventure_yaml_stream_parser.mjs";
+import {
+  applyAuthoritativeFill,
+  authorityPromptBlock,
+  buildAuthority
+} from "./v3_authoritative.mjs";
 
 export const V3_PACKAGE_VERSION = R.version;
+
+/**
+ * 奖励周期标识（D6）：按自然日 `daily:YYYY-MM-DD`。
+ *
+ * ⚠️ 以**服务端**日期为准（R9：客户端时区可能与服务端不一致），
+ *    客户端也可以在 `args.rewardCycleId` 里显式覆盖（例如离线补登时
+ *    需要与账号服务端对齐时区）。
+ */
+export function dailyRewardCycleId(date = new Date()) {
+  const year = date.getFullYear();
+  const month = `${date.getMonth() + 1}`.padStart(2, "0");
+  const day = `${date.getDate()}`.padStart(2, "0");
+  return `daily:${year}-${month}-${day}`;
+}
 
 const OPERATION_TYPES = Object.freeze([
   "start",
@@ -95,6 +114,39 @@ function asString(value, label) {
 }
 
 /**
+ * 归一化客户端回传的 runtime，补齐「缺失但引擎按严格 null 判定」的字段。
+ *
+ * ⚠️ 背景（2026-11-09 线上事故）：
+ *    v3 引擎 `runtime.mjs#validateRequest` 用
+ *    `r.pending_interaction === null` 判断「当前没有待处理交互」。
+ *    Dart 端早期实现把 null 字段整个 key 省略，回传后该字段变成
+ *    `undefined`，严格比较失败 → `start` / `next_round` 被误判为
+ *    「新事件状态非法」，且错误信息完全指不到真实原因。
+ *
+ *    服务端是权威方，不应该因为客户端少写了一个 null key 就拒绝请求，
+ *    因此在信任边界统一补齐。
+ */
+function normalizeRuntime(runtime) {
+  if (!runtime || typeof runtime !== "object" || Array.isArray(runtime)) {
+    return runtime;
+  }
+  const next = { ...runtime };
+  // pending_interaction：缺失 / undefined → 显式 null。
+  if (!("pending_interaction" in next) || next.pending_interaction === undefined) {
+    next.pending_interaction = null;
+  }
+  // applied_request_ids：缺失 → 空数组（幂等键表）。
+  if (!("applied_request_ids" in next) || next.applied_request_ids === undefined) {
+    next.applied_request_ids = [];
+  }
+  // reward_requests：缺失 → 空数组（章节关闭前检查 pending 预留）。
+  if (!("reward_requests" in next) || next.reward_requests === undefined) {
+    next.reward_requests = [];
+  }
+  return next;
+}
+
+/**
  * 校验并规范化 v3 请求体。
  *
  * 请求体形状：
@@ -122,6 +174,11 @@ export function validateV3Request(body) {
     fail("adventure.revision 非法");
   }
   asObject(adventure.campaign, "adventure.campaign");
+  // 归一化 runtime：补齐客户端可能省略的 null 字段（见 normalizeRuntime 注释）。
+  if (adventure.runtime !== undefined && adventure.runtime !== null) {
+    asObject(adventure.runtime, "adventure.runtime");
+    adventure.runtime = normalizeRuntime(adventure.runtime);
+  }
 
   const operation = asObject(body.operation, "operation");
   asString(operation.request_id, "operation.request_id");
@@ -226,6 +283,42 @@ export function prepareV3Prompt(body) {
   // 先预迁移，再装配（见 premigrateV3 注释）
   const pre = premigrateV3(adventure, operation);
 
+  // ── 硬失败短路（P0-2）────────────────────────────────────────
+  // ⚠️ 背景：`next_round` 预迁移会执行 `nextRound()`，它在补给耗尽 /
+  //    腐化拉满 / 全队失能时把 `run_status` 置为 `failed`。
+  //    此时若继续装配提示词，引擎的 `validateRequest` 会因
+  //    `run_status !== 'ongoing'` 抛「新事件状态非法」（400），
+  //    服务端**不会下发任何状态**，客户端存档永远停在 `ongoing`，
+  //    玩家点多少次重试都没用 —— 永久卡死。
+  //
+  //    按每章补给曲线（normal 难度每轮 -1），每章第 16~17 轮起都可能硬失败，
+  //    属于常规玩法路径，不是边缘情况。
+  //
+  //    正确做法：硬失败时**跳过模型调用**，直接下发终局状态，
+  //    让客户端走章末流程（终章回顾 → close_chapter → failCampaign）。
+  if (pre.migrated && pre.runtime.run_status !== "ongoing") {
+    return {
+      messages: Object.freeze([]),
+      systemPrompt: "",
+      userPrompt: "",
+      contextScope: null,
+      requestGuard: buildRequestGuard(adventure),
+      requestId: operation.request_id,
+      operationType: operation.type,
+      expectedTemplateName: operation.expected_template_name,
+      chapterId: adventure.runtime.chapter_id,
+      premigratedAdventure: pre.adventure,
+      premigrated: true,
+      // ⚠️ 硬失败标记：路由层据此跳过模型调用，直接下发状态。
+      hardFail: {
+        run_status: pre.runtime.run_status,
+        reason: "chapter_hard_failed"
+      },
+      authority: null,
+      fingerprintSource: buildFingerprintSource(adventure, operation)
+    };
+  }
+
   let prepared;
   try {
     prepared = A.prepareAdventureMessages(pre.adventure, operation, {
@@ -235,15 +328,24 @@ export function prepareV3Prompt(body) {
     fail(error.message, { adventure_revision: adventure.revision });
   }
 
+  // ── 权威填空表（Part 2 方案 A：提示词注入）────────────────────
+  // ⚠️ 必须在预迁移之后计算：next_round 的轮数/补给、choose 的选中选项、
+  //    battle_result 的战斗结果都只有在预迁移后的 runtime 上才是真值。
+  const authority = buildAuthority(pre.runtime, operation);
+  const authorityBlock = authorityPromptBlock(authority);
+  const userPrompt = authorityBlock
+    ? `${prepared.userPrompt}\n\n${authorityBlock}`
+    : prepared.userPrompt;
+
   const messages = Object.freeze([
     Object.freeze({ role: "system", content: prepared.systemPrompt }),
-    Object.freeze({ role: "user", content: prepared.userPrompt })
+    Object.freeze({ role: "user", content: userPrompt })
   ]);
 
   return {
     messages,
     systemPrompt: prepared.systemPrompt,
-    userPrompt: prepared.userPrompt,
+    userPrompt,
     contextScope: prepared.contextScope,
     requestGuard: prepared.requestGuard,
     requestId: operation.request_id,
@@ -253,23 +355,104 @@ export function prepareV3Prompt(body) {
     // 预迁移后的 adventure（含 state_version 变化），装配阶段必须与推进阶段保持一致。
     premigratedAdventure: pre.adventure,
     premigrated: pre.migrated,
+    // 权威填空表（供日志观察，也供服务端归一化复用同一真值来源）。
+    authority,
     // 供日志/指纹使用；不含 reward_requests 等内部字段。
-    fingerprintSource: {
-      campaign_id: adventure.campaign.campaign_id,
-      campaign_revision: adventure.campaign.revision,
-      adventure_revision: adventure.revision,
-      run_id: adventure.runtime.run_id,
-      chapter_id: adventure.runtime.chapter_id,
-      state_version: adventure.runtime.state_version,
-      operation: {
-        type: operation.type,
-        request_id: operation.request_id,
-        event_id: operation.event_id ?? null,
-        option_id: operation.option_id ?? null,
-        forced_event_id: operation.forced_event_id ?? null
-      }
+    fingerprintSource: buildFingerprintSource(adventure, operation)
+  };
+}
+
+/**
+ * 构造 request_guard（客户端用来丢弃过期回包）。
+ *
+ * 与引擎 `adventure.mjs#prepareAdventureMessages` 的口径保持一致。
+ */
+function buildRequestGuard(adventure) {
+  return {
+    session_revision: adventure.revision,
+    campaign_id: adventure.campaign.campaign_id,
+    run_id: adventure.runtime.run_id,
+    state_version: adventure.runtime.state_version
+  };
+}
+
+/**
+ * 构造幂等指纹来源（不含 reward_requests 等内部字段）。
+ */
+function buildFingerprintSource(adventure, operation) {
+  return {
+    campaign_id: adventure.campaign.campaign_id,
+    campaign_revision: adventure.campaign.revision,
+    adventure_revision: adventure.revision,
+    run_id: adventure.runtime.run_id,
+    chapter_id: adventure.runtime.chapter_id,
+    state_version: adventure.runtime.state_version,
+    operation: {
+      type: operation.type,
+      request_id: operation.request_id,
+      event_id: operation.event_id ?? null,
+      option_id: operation.option_id ?? null,
+      forced_event_id: operation.forced_event_id ?? null
     }
   };
+}
+
+/**
+ * 预解析容错：把「裸键 + 无子节点」的空集合键补成内联空数组/空对象。
+ *
+ * ⚠️ 背景（2026-11-09 线上事故，Round 24 `choose`）：
+ *    模型把空列表写成裸键：
+ *        remove_flags:
+ *        unresolved_hooks_added:
+ *    受限 YAML 子集里，键后面没有值、也没有缩进子节点时，
+ *    `parseRestrictedYaml` 直接抛 `YAML_CHILD_INDENT`
+ *    （`键remove_flags缺少缩进为6的子节点`），**整份输出被丢弃**。
+ *    而这一步发生在权威归一化**之前**，归一化根本没有机会救回来。
+ *
+ *    正确写法是内联空数组：`remove_flags: []`。
+ *
+ * 处理策略（保守）：
+ *   1. 只处理「键后面既没有值、后面也没有任何子节点」的情况；
+ *   2. 只在已知可能为空的机器字段白名单里补，且只补成 **空数组 `[]`**；
+ *      不认识的裸键一律不动，让 schema 校验按原样报错（避免掩盖真实缺陷）；
+ *   3. 补完仍然解析不了 → 原样抛出原始错误，不吞。
+ *
+ * @returns {{yaml: string, repaired: string[]}} 修复后的 YAML 与被修复的键名
+ */
+const REPAIRABLE_EMPTY_LIST_KEYS = new Set([
+  "add_flags",
+  "remove_flags",
+  "run_modifier_ids",
+  "npc_state_updates",
+  "memory_notes",
+  "unresolved_hooks_added",
+  "unresolved_hooks_resolved",
+  "permanent_rewards"
+]);
+
+export function repairBareEmptyListKeys(rawYaml) {
+  if (typeof rawYaml !== "string" || !rawYaml.includes(":")) {
+    return { yaml: rawYaml, repaired: [] };
+  }
+  const lines = rawYaml.split(/\r?\n/);
+  const repaired = [];
+  const output = lines.map((line, index) => {
+    // 只匹配「整行只有一个裸键」：`  remove_flags:`
+    const match = line.match(/^(\s*)([A-Za-z_][A-Za-z0-9_]*):\s*$/);
+    if (!match) return line;
+    const [, indent, key] = match;
+    if (!REPAIRABLE_EMPTY_LIST_KEYS.has(key)) return line;
+    // 下一行若存在且缩进更深，说明本来就有子节点，不是空集合 → 不动。
+    const next = lines[index + 1];
+    if (next !== undefined) {
+      const nextIndent = next.match(/^ */)[0].length;
+      const nextIsBlank = next.trim() === "";
+      if (!nextIsBlank && nextIndent > indent.length) return line;
+    }
+    repaired.push(key);
+    return `${indent}${key}: []`;
+  });
+  return { yaml: output.join("\n"), repaired };
 }
 
 /**
@@ -277,21 +460,48 @@ export function prepareV3Prompt(body) {
  *
  * 服务端做权威校验（capabilities.server_validates_output = true）：
  *   1. 受限 YAML 解析（v3 parser）；
- *   2. 五模板 Schema 校验；
- *   3. 模板名必须与 operation.expected_template_name 一致。
+ *   2. **权威归一化**（Part 2 方案 B）：把程序可推导的机器字段替换为真值；
+ *   3. 五模板 Schema 校验；
+ *   4. 模板名必须与 operation.expected_template_name 一致。
  *
  * ⚠️ 校验失败必须抛出，绝不能推进任何状态（v3 要求「失败输出不可作为成功缓存」）。
+ *
+ * @param {string} rawYaml AI 输出的原始 YAML
+ * @param {object} operation 请求里的 operation
+ * @param {object} [runtime] 预迁移后的 runtime；提供时会启用权威归一化。
+ *        ⚠️ 必须是**预迁移后**的 runtime：next_round 的轮数、choose 的选中选项、
+ *           battle_result 的战斗结果只有在预迁移后才确定。
  */
-export function parseV3Output(rawYaml, operation) {
+export function parseV3Output(rawYaml, operation, runtime = null) {
   const expectedTemplateName = operation.expected_template_name;
+
+  // 预解析容错：先把「裸键空集合」补成内联 `[]`，再交给严格解析器。
+  // ⚠️ 归一化在解析**之后**，因此这一步必须在前，否则空集合字段会让
+  //    整份输出在 YAML 阶段就被丢掉（线上 Round 24 事故）。
+  const repaired = repairBareEmptyListKeys(rawYaml);
   let document;
   try {
-    document = parseRestrictedYaml(rawYaml);
+    document = parseRestrictedYaml(repaired.yaml);
   } catch (error) {
     throw new V3OutputError(`AI 输出不是合法协议文档：${error.message}`, {
       stage: "yaml_parse",
-      cause: error.code ?? null
+      cause: error.code ?? null,
+      repaired_keys: repaired.repaired
     });
+  }
+
+  // 权威归一化：把机器字段换成程序真值，模型只需要写叙事。
+  // ⚠️ 归一化失败（拿不到授权）时保持原样，交给后续 schema/引擎校验报错，
+  //    不在这里吞掉真实缺陷。
+  let repairs = [];
+  if (runtime) {
+    try {
+      const filled = applyAuthoritativeFill(document, runtime, operation);
+      document = filled.document;
+      repairs = filled.repairs;
+    } catch {
+      document = parseRestrictedYaml(rawYaml);
+    }
   }
 
   let validated;
@@ -303,11 +513,76 @@ export function parseV3Output(rawYaml, operation) {
   } catch (error) {
     throw new V3OutputError(`AI 输出未通过模板校验：${error.message}`, {
       stage: "schema_validate",
-      cause: error.code ?? null
+      cause: error.code ?? null,
+      repairs
     });
   }
 
+  if (repairs.length) {
+    // ⚠️ 直接挂在根对象上：schema 校验已完成，后续引擎只读 event_details。
+    validated.__repairs = repairs;
+  }
+
   return validated;
+}
+
+/**
+ * B 方案：把结算输出里的 `npc_state_updates` 强制对齐到事件表授权值。
+ *
+ * ⚠️ 背景（2026-11-09 线上事故，3 次 `NPC变化未获授权`）：
+ *    引擎 `runtime.mjs#commitSettlement` 做的是**严格 JSON 全等**比较
+ *    （`JSON.stringify(patch.npc_state_updates) === JSON.stringify(fx.npc_updates)`），
+ *    顺序敏感、不允许任何偏差。而全库 1747 个 result 里 1717 个 `npc_updates` 为空数组，
+ *    提示词却教 AI「关系阶梯」「移动一级」，结算模板示例本身还写了一个非空 NPC 变更，
+ *    于是 AI 几乎必然写出非空数组 → 结算被拒 → 状态不推进 → 玩家卡在当前轮。
+ *
+ *    A 方案（收紧提示词）能降低发生概率，但**不能保证 0**：模型服从度不可控，
+ *    而这一个字段的偏差会让整局冒险卡死。因此服务端在信任边界做权威归一化：
+ *    以事件表 `options.results[outcome].npc_updates` 为唯一真值覆盖 AI 输出。
+ *
+ * 设计约束：
+ *   1. **只改这一个字段**。其余字段（summary / flags / route_delta / memory_notes…）
+ *      仍走引擎原有校验，AI 写错照样被拒——不做过度兜底，避免掩盖真实缺陷。
+ *   2. **只覆盖，不合并**。引擎要求全等，合并语义不存在。
+ *   3. **授权解析失败时不动手**。此时交给引擎抛出它自己的错误信息，
+ *      避免用兜底逻辑掩盖「事件/选项/outcome 本身非法」这类更严重的问题。
+ *   4. 归一化结果会回写给客户端（routes.mjs 下发的 `output`），
+ *      保证服务端存档与客户端展示口径一致。
+ *
+ * @returns {{output: object, changed: boolean, repair: object|null}}
+ */
+export function normalizeSettlementNpcUpdates(runtime, output) {
+  const patch = output?.event_details?.story_patch;
+  if (!patch || !Array.isArray(patch.npc_state_updates)) {
+    return { output, changed: false, repair: null };
+  }
+
+  let authorized;
+  try {
+    authorized = R.settlementEffect(runtime, patch.outcome).effect.npc_updates ?? [];
+  } catch {
+    // 授权本身取不到（事件/选项/outcome 不合法）→ 不归一化，让引擎按原逻辑报错。
+    return { output, changed: false, repair: null };
+  }
+
+  const current = patch.npc_state_updates;
+  if (JSON.stringify(current) === JSON.stringify(authorized)) {
+    return { output, changed: false, repair: null };
+  }
+
+  const normalized = structuredClone(output);
+  normalized.event_details.story_patch.npc_state_updates = structuredClone(authorized);
+  return {
+    output: normalized,
+    changed: true,
+    repair: {
+      field: "story_patch.npc_state_updates",
+      outcome: patch.outcome,
+      event_id: patch.completed_event_id ?? null,
+      ai_value: current,
+      authorized_value: authorized
+    }
+  };
 }
 
 /**
@@ -324,35 +599,66 @@ export function advanceV3(premigratedAdventure, operation, aiOutput) {
     fail("当前没有活动章节，无法推进状态");
   }
 
+  // B 方案：结算类操作先做 npc_state_updates 权威归一化，再交给引擎校验。
+  // ⚠️ 归一化只作用于「结算」模板；新事件/检定/战斗模板没有这个字段。
+  let effectiveOutput = aiOutput;
+  let repair = null;
+  if (operation.expected_template_name === "结算") {
+    const normalized = normalizeSettlementNpcUpdates(runtime, aiOutput);
+    effectiveOutput = normalized.output;
+    repair = normalized.repair;
+  }
+
   let nextRuntime;
   switch (operation.type) {
     case "start":
     case "next_round": {
-      nextRuntime = R.acceptNewEvent(runtime, aiOutput);
+      // ── 硬失败短路（P0-2）────────────────────────────────────
+      // ⚠️ `next_round` 的预迁移（`nextRound()`）可能把 `run_status` 置为
+      //    `failed`（补给耗尽 / 腐化拉满 / 全队失能）。
+      //    此时 `acceptNewEvent` 会抛「已有交互或章节已结束」，客户端拿不到
+      //    任何状态 → 永久卡死。
+      //
+      //    正确做法：直接接受预迁移后的 runtime（它已经带着 failed 状态），
+      //    不生成新事件，让客户端走章末流程。
+      //
+      //    ⚠️ 这里**不能**走 `A.updateAdventure`：它的 `state_version` 必须
+      //    **严格大于**旧值，而预迁移后的 runtime 与旧 runtime 是同一份
+      //    （nextRound 已在预迁移阶段自增过 state_version），会抛
+      //    「重复或过期运行态，不允许回滚」。因此这里只推进 adventure.revision。
+      if (runtime.run_status !== "ongoing") {
+        return {
+          adventure: { ...premigratedAdventure, revision: premigratedAdventure.revision + 1 },
+          changed: true,
+          output: null,
+          repair
+        };
+      }
+      nextRuntime = R.acceptNewEvent(runtime, effectiveOutput);
       break;
     }
     case "choose": {
       // 直选（direct）选项的结算模板本身就是结算输出，必须直接 commitSettlement。
       // 走 acceptResolution 会把 phase 置为 awaiting_battle_result 并卡死。
       if (operation.expected_template_name === "结算") {
-        nextRuntime = R.commitSettlement(runtime, aiOutput, {
+        nextRuntime = R.commitSettlement(runtime, effectiveOutput, {
           requestId: operation.request_id,
           expectedVersion: runtime.state_version
         });
       } else {
-        nextRuntime = R.acceptResolution(runtime, aiOutput);
+        nextRuntime = R.acceptResolution(runtime, effectiveOutput);
       }
       break;
     }
     case "settle_check": {
-      nextRuntime = R.commitSettlement(runtime, aiOutput, {
+      nextRuntime = R.commitSettlement(runtime, effectiveOutput, {
         requestId: operation.request_id,
         expectedVersion: runtime.state_version
       });
       break;
     }
     case "battle_result": {
-      nextRuntime = R.commitSettlement(runtime, aiOutput, {
+      nextRuntime = R.commitSettlement(runtime, effectiveOutput, {
         requestId: operation.request_id,
         expectedVersion: runtime.state_version
       });
@@ -360,7 +666,12 @@ export function advanceV3(premigratedAdventure, operation, aiOutput) {
     }
     case "finale": {
       // 终章不改变进度，只作为归档素材。归档由 close_chapter 动作触发。
-      return { adventure: premigratedAdventure, changed: false };
+      return {
+        adventure: premigratedAdventure,
+        changed: false,
+        output: stripInternalFields(effectiveOutput),
+        repair
+      };
     }
     default:
       fail(`未知 operation.type：${operation.type}`);
@@ -369,7 +680,156 @@ export function advanceV3(premigratedAdventure, operation, aiOutput) {
   const next = A.updateAdventure(premigratedAdventure, nextRuntime, {
     expectedRevision: premigratedAdventure.revision
   });
-  return { adventure: next, changed: true };
+  return { adventure: next, changed: true, output: stripInternalFields(effectiveOutput), repair };
+}
+
+/**
+ * 剥掉服务端内部字段（`__repairs`）后再下发给客户端。
+ *
+ * ⚠️ 客户端只展示与落盘协议文档，不应看到服务端的修复痕迹。
+ */
+function stripInternalFields(output) {
+  if (!output || typeof output !== "object") return output;
+  if (!("__repairs" in output)) return output;
+  const next = { ...output };
+  delete next.__repairs;
+  return next;
+}
+
+/**
+ * 为 `continue` 动作构造权威的 reward_state。
+ *
+ * ⚠️ 为什么必须服务端构造（D10 + D6）：
+ *   - 客户端事件目录是 schedule-only，**没有**章节 economy 配置，
+ *     无法算出 `gold_gain_cap` / 各 `*_slots` 额度；
+ *   - `createRewardState` 要求 `cycle_id` 是自然日周期（D6），
+ *     客户端与服务端时区可能不一致（R9），以服务端为准。
+ *
+ * 返回 null 表示「不需要注入」（例如只是续玩同一个进行中的 run，
+ * 引擎会直接返回副本，reward_state 原样保留）。
+ */
+function buildRewardStateForContinue(current, args) {
+  const runtime = current.runtime;
+  // 续玩进行中的 run：引擎走 copy(s) 分支，不需要新账本。
+  if (runtime && runtime.run_status === "ongoing") return null;
+
+  // 目标章节 = 已归档章数（+ 本次将被归档的 cleared 章）。
+  const records = current.campaign.chapter_results?.length ?? 0;
+  const targetIndex = runtime && runtime.run_status === "cleared" ? records + 1 : records;
+  const chapter = R.chapters[targetIndex];
+  if (!chapter) return null;
+
+  const cycleId = typeof args.rewardCycleId === "string" && args.rewardCycleId
+    ? args.rewardCycleId
+    : dailyRewardCycleId();
+
+  // 账本继承（D6 + 同周期不重置）：
+  //   - **跨周期**：用 previous 保留 lifetime 领取键（引擎的 createRewardState
+  //     只在周期不同时接受 previous）。
+  //   - **同周期**（例如玩家当天失败后「从第一章重开」）：**必须**保留原账本的
+  //     claimed_reward_keys 与剩余额度，否则玩家可以反复重开刷同一章的
+  //     材料/圣物/金币额度（协议：「换run_id、换seed、换campaign_id都不能
+  //     恢复同周期额度」）。
+  //
+  // ⚠️ 引擎的 `createRewardState` 硬性要求 `previous.cycle_id !== cycleId`，
+  //    同周期直接传 previous 会被它拒绝（`已有周期账本不能被重新初始化`）。
+  //    因此同周期走「就地修正」：新建一份当前周期的账本，但继承原账本的
+  //    领取键与剩余额度。
+  const previous = args.previousRewardState;
+  const sameCycle =
+    previous &&
+    previous.chapter_id === chapter.id &&
+    previous.cycle_id === cycleId;
+
+  if (sameCycle) {
+    return reuseSameCycleRewardState(previous, chapter, cycleId);
+  }
+
+  // 跨周期重建：客户端可回传上一周期的账本用于保留 lifetime 键。
+  // ⚠️ createRewardState 要求 previous.chapter_id === chapterId 且周期不同，
+  //    不满足时直接忽略 previous（宁可新建也不让引擎抛错）。
+  const usablePrevious = previous
+    && previous.chapter_id === chapter.id
+    && previous.cycle_id !== cycleId
+    ? previous
+    : null;
+
+  try {
+    return E.createRewardState({
+      chapterId: chapter.id,
+      cycleId,
+      ...(usablePrevious ? { previous: usablePrevious } : {})
+    });
+  } catch {
+    // 构造失败时不注入，让引擎用自己的错误信息说明缺什么。
+    return null;
+  }
+}
+
+/**
+ * 同周期重开时的账本继承。
+ *
+ * 场景：玩家当天在 CH01 领过材料/圣物/金币额度 → 失败 → 「从第一章重开」。
+ * 若此时新建一份满额账本，玩家可以在同一天把八章的永久奖励无限刷一遍。
+ *
+ * 做法：新建当前周期的账本（额度按章节配置初始化），然后把**原账本已消耗的
+ * 部分**继承过来：
+ *   - `claimed_reward_keys`：原样继承（已领过的键不能再领）；
+ *   - 各 `*_slots_remaining`：取「新建值」与「原值」的较小者（已消耗的额度不恢复）；
+ *   - `gold_gain_remaining`：同上；
+ *   - `revealed_pending_rewards` / `granted_permanent_rewards`：原样继承。
+ *
+ * ⚠️ 为什么不在这里做「服务端权威持久化」：账本的唯一存储方是客户端存档
+ *    （D1：客户端持存档），服务端不落盘。客户端每次 `continue` 都会回传
+ *    `previousRewardState`，因此这条路径等价于「客户端把账本还回来」。
+ *    若客户端没回传（例如旧版本客户端），这里会退化成新建满额账本 ——
+ *    属于旧客户端的兼容缺口，不是本函数的行为问题。
+ *
+ * @param {object} previous 原账本（同一章、同一周期）
+ * @param {object} chapter 章节配置
+ * @param {string} cycleId 当前奖励周期
+ * @returns {object|null} 当前周期的账本；构造失败返回 null
+ */
+function reuseSameCycleRewardState(previous, chapter, cycleId) {
+  try {
+    const fresh = E.createRewardState({
+      chapterId: chapter.id,
+      cycleId
+    });
+
+    const slotFields = [
+      "gold_gain_remaining",
+      "material_reward_slots_remaining",
+      "relic_reward_slots_remaining",
+      "bond_reward_slots_remaining",
+      "equipment_reward_slots_remaining"
+    ];
+
+    const next = { ...fresh };
+    for (const field of slotFields) {
+      const remaining = Number(previous[field]);
+      if (!Number.isSafeInteger(remaining) || remaining < 0) continue;
+      // 已消耗的额度不恢复：取两者较小者。
+      if (remaining < next[field]) next[field] = remaining;
+    }
+
+    // 已领取的键原样继承（已领过的键不能再次发放）。
+    const claimed = Array.isArray(previous.claimed_reward_keys)
+      ? previous.claimed_reward_keys.filter(key => typeof key === "string")
+      : [];
+    next.claimed_reward_keys = [...new Set(claimed)];
+
+    if (Array.isArray(previous.revealed_pending_rewards)) {
+      next.revealed_pending_rewards = previous.revealed_pending_rewards;
+    }
+    if (Array.isArray(previous.granted_permanent_rewards)) {
+      next.granted_permanent_rewards = previous.granted_permanent_rewards;
+    }
+    return next;
+  } catch {
+    // 构造失败时不注入，让引擎用自己的错误信息说明缺什么。
+    return null;
+  }
 }
 
 /**
@@ -413,6 +873,12 @@ export function transitionV3(body) {
         const continueArgs = Object.fromEntries(
           Object.entries(args).filter(([, value]) => value !== undefined)
         );
+        // D10：客户端事件目录是 schedule-only，拿不到章节 economy 配置，
+        //    因此 reward_state 由服务端按章节配置权威构造（D6 周期由服务端定）。
+        if (continueArgs.rewardState === undefined) {
+          const injected = buildRewardStateForContinue(current, continueArgs);
+          if (injected) continueArgs.rewardState = injected;
+        }
         next = A.continueAdventure(current, {
           ...continueArgs,
           expectedRevision: current.revision
@@ -493,34 +959,40 @@ export function shadowValidateOutput(adventure, operation, output) {
   const runtime = adventure?.runtime;
   if (!runtime || !output) return { ok: false, reason: "缺少runtime或输出" };
   try {
+    // ⚠️ 与 advanceV3 保持同一口径：结算类输出先做 npc_state_updates 归一化，
+    //    否则影子校验会因为同一个字段报「NPC变化未获授权」而与真实推进结果矛盾。
+    let effective = output;
+    if (operation.expected_template_name === "结算") {
+      effective = normalizeSettlementNpcUpdates(runtime, output).output;
+    }
     switch (operation.type) {
       case "start":
       case "next_round": {
-        const next = R.acceptNewEvent(runtime, output);
+        const next = R.acceptNewEvent(runtime, effective);
         return { ok: true, stateVersion: next.state_version };
       }
       case "choose": {
         const selected = R.selectOption(runtime, operation.option_id);
         if (operation.expected_template_name === "结算") {
-          const next = R.commitSettlement(selected, output, {
+          const next = R.commitSettlement(selected, effective, {
             requestId: operation.request_id,
             expectedVersion: selected.state_version
           });
           return { ok: true, stateVersion: next.state_version };
         }
-        const next = R.acceptResolution(selected, output);
+        const next = R.acceptResolution(selected, effective);
         return { ok: true, stateVersion: next.state_version };
       }
       case "battle_result": {
         const accepted = R.acceptBattleResult(runtime, operation.battle_result);
-        const next = R.commitSettlement(accepted, output, {
+        const next = R.commitSettlement(accepted, effective, {
           requestId: operation.request_id,
           expectedVersion: accepted.state_version
         });
         return { ok: true, stateVersion: next.state_version };
       }
       case "settle_check": {
-        const next = R.commitSettlement(runtime, output, {
+        const next = R.commitSettlement(runtime, effective, {
           requestId: operation.request_id,
           expectedVersion: runtime.state_version
         });

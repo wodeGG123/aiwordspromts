@@ -292,6 +292,32 @@ export function createApp({ config, modelClient } = {}) {
         let forwardedChars = 0;
         // v3 需要在流结束后用完整 YAML 做权威校验，因此必须累积原始文本。
         const rawChunks = [];
+
+        // ── 硬失败短路（P0-2）────────────────────────────────────
+        // ⚠️ `next_round` 预迁移后本章已判失败（补给耗尽 / 腐化拉满 /
+        //    全队失能）时，**不再调用模型**：这一轮没有新事件可生成。
+        //    直接把终局状态下发给客户端，让它走章末流程。
+        //    （不短路的话，装配阶段的 `validateRequest` 会抛「新事件状态非法」，
+        //    服务端不下发任何状态 → 客户端永久卡死。）
+        if (prepared.hardFail) {
+          idempotency.update(prepared.requestId, { status: "completed" });
+          log("hard_fail_short_circuit", {
+            run_status: prepared.hardFail.run_status,
+            reason: prepared.hardFail.reason
+          });
+          writeSseEvent(res, "state", JSON.stringify({
+            adventure: prepared.premigratedAdventure,
+            state_version: prepared.premigratedAdventure?.runtime?.state_version ?? null,
+            revision: prepared.premigratedAdventure?.revision ?? null,
+            request_guard: prepared.requestGuard,
+            changed: true,
+            output: null
+          }));
+          writeSseDone(res);
+          await aiDebugger.finish(trace, { status: "completed", metrics: streamMetrics });
+          return;
+        }
+
         for await (const delta of modelService.stream(prepared.messages, {
           signal: controller.signal,
           onMetrics: metrics => { streamMetrics = metrics; }
@@ -315,7 +341,9 @@ export function createApp({ config, modelClient } = {}) {
           const rawYaml = rawChunks.join("");
           let aiOutput;
           try {
-            aiOutput = parseV3Output(rawYaml, input.operation);
+            // ⚠️ 必须传预迁移后的 runtime：权威归一化要按「本次真实状态」重算
+            //    轮数、选中选项、战斗结果与事件表授权值。
+            aiOutput = parseV3Output(rawYaml, input.operation, prepared.premigratedAdventure.runtime);
           } catch (error) {
             idempotency.update(prepared.requestId, {
               status: "failed",
@@ -348,13 +376,46 @@ export function createApp({ config, modelClient } = {}) {
             return;
           }
 
+          // Part 2 方案 B：权威归一化修复痕迹。
+          // ⚠️ 这些输出**不是**非法输出（引擎会接受），但说明模型仍在自造机器字段，
+          //    需要留痕观察方案 A（提示词注入）的收敛效果。
+          const fillRepairs = aiOutput?.__repairs;
+          if (Array.isArray(fillRepairs) && fillRepairs.length) {
+            log("output_filled", {
+              repairs: fillRepairs.map((repair) => ({
+                field: repair.field,
+                reason: repair.reason
+              }))
+            });
+          }
+
+          // B 方案：npc_state_updates 被服务端强制对齐到事件表授权值。
+          // ⚠️ 这类输出**不是**非法输出（引擎会接受），但说明模型仍在自造 NPC 状态，
+          //    需要留痕观察 A 方案（提示词收紧）的收敛效果。
+          if (advanced.repair) {
+            log("output_repaired", {
+              field: advanced.repair.field,
+              event_id: advanced.repair.event_id,
+              outcome: advanced.repair.outcome,
+              ai_value: advanced.repair.ai_value,
+              authorized_value: advanced.repair.authorized_value
+            });
+          }
+
           // 状态事件必须先于 [DONE]，客户端据此落盘新存档。
+          // ⚠️ 同时下发经服务端权威校验的 AI 文档 `output`：客户端直接展示
+          //    校验后的结构（结算摘要 / 终章回顾），不必自行二次解析 YAML，
+          //    也避免客户端解析口径与服务端校验口径漂移。
+          // ⚠️ output 用归一化后的版本（advanced.output），不是原始 aiOutput：
+          //    B 方案会就地修正 npc_state_updates，下发修正版才不会让客户端
+          //    展示与服务端存档不一致的 NPC 状态。
           writeSseEvent(res, "state", JSON.stringify({
             adventure: advanced.adventure,
             state_version: advanced.adventure?.runtime?.state_version ?? null,
             revision: advanced.adventure?.revision ?? null,
             request_guard: prepared.requestGuard,
-            changed: advanced.changed
+            changed: advanced.changed,
+            output: advanced.output ?? aiOutput
           }));
         }
 
